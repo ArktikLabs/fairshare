@@ -1,17 +1,17 @@
-"use client";
+"use client"
 
-import { useSession } from "next-auth/react";
-import Link from "next/link";
+import { useSession } from "next-auth/react"
+import Link from "next/link"
 
 export default function Home() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = useSession()
 
   if (status === "loading") {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-lg">Loading...</div>
       </div>
-    );
+    )
   }
 
   return (
@@ -23,8 +23,7 @@ export default function Home() {
             Fair<span className="text-indigo-600">Share</span>
           </h1>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            A modern platform for fair and transparent sharing of resources,
-            expenses, and responsibilities.
+            A modern platform for fair and transparent sharing of resources, expenses, and responsibilities.
           </p>
         </header>
 
@@ -71,12 +70,9 @@ export default function Home() {
             <div className="w-12 h-12 bg-indigo-100 rounded-lg mx-auto mb-4 flex items-center justify-center">
               <span className="text-indigo-600 text-xl">⚖️</span>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              Fair Distribution
-            </h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Fair Distribution</h3>
             <p className="text-gray-600">
-              Ensure equal and fair distribution of shared resources and
-              expenses.
+              Ensure equal and fair distribution of shared resources and expenses.
             </p>
           </div>
 
@@ -84,12 +80,9 @@ export default function Home() {
             <div className="w-12 h-12 bg-indigo-100 rounded-lg mx-auto mb-4 flex items-center justify-center">
               <span className="text-indigo-600 text-xl">🔍</span>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              Transparent Tracking
-            </h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Transparent Tracking</h3>
             <p className="text-gray-600">
-              Keep track of all transactions and contributions with full
-              transparency.
+              Keep track of all transactions and contributions with full transparency.
             </p>
           </div>
 
@@ -97,15 +90,66 @@ export default function Home() {
             <div className="w-12 h-12 bg-indigo-100 rounded-lg mx-auto mb-4 flex items-center justify-center">
               <span className="text-indigo-600 text-xl">👥</span>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              Team Collaboration
-            </h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Team Collaboration</h3>
             <p className="text-gray-600">
               Work together seamlessly with your team or group members.
             </p>
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+          </a>
+        </div>
+      </main>
+      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
+        <a
+          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
+          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Image
+            aria-hidden
+            src="/file.svg"
+            alt="File icon"
+            width={16}
+            height={16}
+          />
+          Learn
+        </a>
+        <a
+          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
+          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Image
+            aria-hidden
+            src="/window.svg"
+            alt="Window icon"
+            width={16}
+            height={16}
+          />
+          Examples
+        </a>
+        <a
+          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
+          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Image
+            aria-hidden
+            src="/globe.svg"
+            alt="Globe icon"
+            width={16}
+            height={16}
+          />
+          Go to nextjs.org →
+        </a>
+      </footer>
     </div>
   );
 }
