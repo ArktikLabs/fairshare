@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { signIn, getSession } from "next-auth/react";
+import { useState, useEffect } from "react";
+import { signIn, getSession, getProviders } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 export default function SignIn() {
@@ -9,7 +9,16 @@ export default function SignIn() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [providers, setProviders] = useState<any>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    const getAuthProviders = async () => {
+      const providers = await getProviders();
+      setProviders(providers);
+    };
+    getAuthProviders();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,6 +107,53 @@ export default function SignIn() {
             </button>
           </div>
         </form>
+
+        {/* OAuth Providers */}
+        {providers &&
+          Object.values(providers).filter(
+            (provider: any) => provider.id !== "credentials"
+          ).length > 0 && (
+            <div className="mt-6">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-gray-50 text-gray-500">
+                    Or continue with
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 gap-3">
+                {providers &&
+                  Object.values(providers)
+                    .filter((provider: any) => provider.id !== "credentials")
+                    .map((provider: any) => (
+                      <button
+                        key={provider.name}
+                        onClick={() => signIn(provider.id)}
+                        className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
+                      >
+                        <span>Sign in with {provider.name}</span>
+                      </button>
+                    ))}
+              </div>
+            </div>
+          )}
+
+        {/* Register Link */}
+        <div className="text-center">
+          <span className="text-sm text-gray-600">
+            Don't have an account?{" "}
+            <a
+              href="/auth/register"
+              className="font-medium text-indigo-600 hover:text-indigo-500"
+            >
+              Sign up
+            </a>
+          </span>
+        </div>
       </div>
     </div>
   );
