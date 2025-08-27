@@ -3,6 +3,8 @@
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import PasskeyManagement from "@/components/PasskeyManagement";
+import { SessionDebugger } from "@/components/SessionDebugger";
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
@@ -48,14 +50,14 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
-          <div className="border-4 border-dashed border-gray-200 rounded-lg h-96 p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              Welcome to your Dashboard!
-            </h2>
+          <div className="space-y-6">
             <div className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                Welcome to your Dashboard!
+              </h2>
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
                 User Information
               </h3>
               <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
@@ -79,9 +81,15 @@ export default function Dashboard() {
                 </div>
               </dl>
             </div>
+
+            {/* Passkey Management Section */}
+            <PasskeyManagement />
           </div>
         </div>
       </main>
+      
+      {/* Session Debugger - only shows in development */}
+      <SessionDebugger />
     </div>
   );
 }

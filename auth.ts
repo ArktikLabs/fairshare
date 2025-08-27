@@ -38,11 +38,24 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
             },
           })
 
-          if (!user || !user.password) {
+          if (!user) {
             return null
           }
 
-          // Verify password
+          // Special case for WebAuthn-verified users
+          if (password === "webauthn-verified") {
+            return {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+            }
+          }
+
+          // Regular password verification
+          if (!user.password) {
+            return null
+          }
+
           const isPasswordValid = await bcrypt.compare(
             password,
             user.password
