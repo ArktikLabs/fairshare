@@ -4,12 +4,20 @@ import { useState, useEffect } from "react";
 import { signIn, getSession, getProviders } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
+type Provider = {
+  id: string;
+  name: string;
+  type: string;
+  signinUrl: string;
+  callbackUrl: string;
+};
+
 export default function SignIn() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [providers, setProviders] = useState<any>(null);
+  const [providers, setProviders] = useState<Record<string, Provider> | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -41,7 +49,8 @@ export default function SignIn() {
           router.push("/dashboard");
         }
       }
-    } catch (error) {
+    } catch (err) {
+      console.error("Sign in error:", err);
       setError("An error occurred. Please try again.");
     } finally {
       setLoading(false);
@@ -111,7 +120,7 @@ export default function SignIn() {
         {/* OAuth Providers */}
         {providers &&
           Object.values(providers).filter(
-            (provider: any) => provider.id !== "credentials"
+            (provider: Provider) => provider.id !== "credentials"
           ).length > 0 && (
             <div className="mt-6">
               <div className="relative">
@@ -128,8 +137,8 @@ export default function SignIn() {
               <div className="mt-6 grid grid-cols-1 gap-3">
                 {providers &&
                   Object.values(providers)
-                    .filter((provider: any) => provider.id !== "credentials")
-                    .map((provider: any) => (
+                    .filter((provider: Provider) => provider.id !== "credentials")
+                    .map((provider: Provider) => (
                       <button
                         key={provider.name}
                         onClick={() => signIn(provider.id)}
@@ -145,7 +154,7 @@ export default function SignIn() {
         {/* Register Link */}
         <div className="text-center">
           <span className="text-sm text-gray-600">
-            Don't have an account?{" "}
+            Don&apos;t have an account?{" "}
             <a
               href="/auth/register"
               className="font-medium text-indigo-600 hover:text-indigo-500"

@@ -36,7 +36,8 @@ export default function Register() {
           "/auth/signin?message=Registration successful. Please sign in."
         );
       }
-    } catch (error) {
+    } catch (err) {
+      console.error("Registration error:", err);
       setError("An error occurred. Please try again.");
     } finally {
       setLoading(false);
