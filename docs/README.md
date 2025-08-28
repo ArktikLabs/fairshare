@@ -1,53 +1,78 @@
-# FairShare Design System
+# FairShare Documentation
 
-A comprehensive design system for the FairShare expense-sharing application, built with Next.js, Tailwind CSS, and modern web standards.
+Complete documentation for the FairShare expense-sharing application, including setup guides, design system, and troubleshooting.
 
 ## 📖 Table of Contents
 
-- [Overview](#overview)
-- [Getting Started](#getting-started)
-- [Documentation](#documentation)
-- [Components](#components)
-- [Design Tokens](#design-tokens)
+- [🎨 Design System](#-design-system)
+- [⚙️ Setup & Implementation](#%EF%B8%8F-setup--implementation)
+- [🔧 Troubleshooting](#-troubleshooting)
+- [📱 Application Overview](#-application-overview)
 
-## 🎯 Overview
+## � Design System
 
-The FairShare Design System provides a unified set of design principles, components, and guidelines to ensure consistency across all user interfaces. It emphasizes:
+The FairShare Design System provides a unified set of design principles, components, and guidelines to ensure consistency across all user interfaces.
 
-- **Trust & Transparency** - Clear, honest design that builds user confidence
-- **Simplicity** - Intuitive interfaces that make expense sharing effortless
-- **Accessibility** - Inclusive design for all users
-- **Modern Aesthetics** - Clean, contemporary visual design
+### Design System Documentation
 
-## 🚀 Getting Started
+| File | Description |
+|------|-------------|
+| [Colors](./design-system/colors.md) | Color palette, usage guidelines, and accessibility |
+| [Typography](./design-system/typography.md) | Font system, scales, and text treatments |
+| [Spacing](./design-system/spacing.md) | Layout spacing, padding, margins, and grid |
+| [Components](./design-system/components.md) | UI component library and usage |
+| [Icons](./design-system/icons.md) | Icon system and guidelines |
+| [Layout](./design-system/layout.md) | Grid system, containers, and responsive design |
+| [Animation](./design-system/animation.md) | Motion design and interaction patterns |
 
-### Installation
+## ⚙️ Setup & Implementation
+
+Step-by-step guides for setting up and implementing various features of the FairShare application.
+
+| File | Description |
+|------|-------------|
+| [Prisma Setup](./setup/PRISMA_SETUP.md) | Database configuration with Prisma and PostgreSQL |
+| [Auth.js v5 Migration](./setup/AUTHJS_V5_MIGRATION.md) | Complete authentication setup with Auth.js v5 |
+| [WebAuthn Implementation](./setup/WEBAUTHN_IMPLEMENTATION.md) | Passwordless authentication with WebAuthn |
+
+## 🔧 Troubleshooting
+
+Common issues and their solutions.
+
+| File | Description |
+|------|-------------|
+| [Auto Logout Fix](./troubleshooting/AUTO_LOGOUT_FIX.md) | Resolving auto-logout issues after WebAuthn authentication |
+
+## 📱 Application Overview
+
+FairShare is a modern expense-sharing application built with:
+
+- **Framework**: Next.js 15.5.2 with App Router
+- **Database**: PostgreSQL with Prisma ORM
+- **Authentication**: Auth.js v5 with WebAuthn support
+- **Styling**: Tailwind CSS with custom design system
+- **Typography**: Geist font family
+
+### Key Features
+
+- 🔐 **Secure Authentication** - Password and passwordless (WebAuthn) login
+- 💰 **Expense Tracking** - Track and split shared expenses
+- 👥 **Group Management** - Organize expenses by groups
+- 📱 **Responsive Design** - Works on all device sizes
+- ♿ **Accessibility** - WCAG compliant design system
+
+## 🚀 Quick Start
 
 ```bash
 # Install dependencies
 pnpm install
 
+# Set up environment variables
+cp .env.example .env
+
 # Start development server
 pnpm dev
 ```
-
-### Quick Reference
-
-- **Colors**: Green/Blue palette with neutral grays
-- **Typography**: Geist font family with display/body variants
-- **Spacing**: 8px base unit (0.5rem increments)
-- **Breakpoints**: Mobile-first responsive design
-
-## 📚 Documentation
-
-| Section                       | Description                                        |
-| ----------------------------- | -------------------------------------------------- |
-| [Colors](./colors.md)         | Color palette, usage guidelines, and accessibility |
-| [Typography](./typography.md) | Font system, scales, and text treatments           |
-| [Spacing](./spacing.md)       | Layout spacing, padding, margins, and grid         |
-| [Components](./components.md) | UI component library and usage                     |
-| [Icons](./icons.md)           | Icon system and guidelines                         |
-| [Layout](./layout.md)         | Grid system, containers, and responsive design     |
 | [Animation](./animation.md)   | Motion design and interaction patterns             |
 
 ## 🧩 Components
