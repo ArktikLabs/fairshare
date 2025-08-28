@@ -54,6 +54,8 @@ model User {
   accounts      Account[]
   sessions      Session[]
   authenticators Authenticator[]
+  preferences   UserPreferences?
+  notificationSettings UserNotificationSetting[]
 }
 
 model VerificationToken {
@@ -86,4 +88,54 @@ model Authenticator {
   transports           String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserPreferences {
+  id        String  @id @default(cuid())
+  userId    String  @unique
+  theme     String  @default("light") // "light", "dark", "system"
+  
+  // Localization preferences
+  currency  String  @default("USD") // ISO 4217 currency codes (USD, EUR, GBP, etc.)
+  timezone  String  @default("UTC") // IANA timezone (America/New_York, Europe/London, etc.)
+  language  String  @default("en")  // ISO 639-1 language codes (en, es, fr, de, etc.)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model NotificationTemplate {
+  id          String @id @default(cuid())
+  key         String @unique // e.g., "expense_added", "group_invite"
+  name        String // e.g., "Expense Added"
+  description String // e.g., "When someone adds a new expense"
+  category    String // e.g., "expenses", "groups", "news"
+  
+  // Default settings for new users
+  defaultEmail Boolean @default(true)
+  defaultPush  Boolean @default(true)
+  
+  // Whether this notification type is mandatory
+  required     Boolean @default(false)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model UserNotificationSetting {
+  id           String @id @default(cuid())
+  userId       String
+  templateKey  String // References NotificationTemplate.key
+  
+  emailEnabled Boolean @default(true)
+  pushEnabled  Boolean @default(true)
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, templateKey])
 }

@@ -29,11 +29,12 @@ High-impact, low-effort improvements that can be implemented quickly to enhance 
   - [ ] Update user avatar display
   - [ ] Add default avatar generation
 
-- [ ] **Account Preferences**
-  - [ ] Add user preferences model to database
-  - [ ] Create preferences section in account page
-  - [ ] Email notification preferences
-  - [ ] Theme preference (dark/light mode)
+- [x] **Account Preferences** ✅ COMPLETED (Aug 28, 2025)
+  - [x] Add user preferences model to database
+  - [x] Create preferences section in account page
+  - [x] Enhanced notification system with granular email/push control
+  - [x] Theme preference (dark/light/system mode)
+  - [x] Scalable notification template system
 
 ## 🚀 Next Week (2-5 days each)
 
