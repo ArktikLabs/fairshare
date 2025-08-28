@@ -6,18 +6,19 @@ High-impact, low-effort improvements that can be implemented quickly to enhance 
 
 ### Authentication Improvements
 
-- [x] **Implement Change Password** ✅ COMPLETED
+- [x] **Implement Change Password** ✅ COMPLETED (Aug 28, 2025)
 
   - [x] Create `/api/auth/change-password` endpoint
   - [x] Add change password form to account page
   - [x] Add current password verification
   - [x] Test with existing auth flow
 
-- [ ] **Forgot Password Flow**
-  - [ ] Create password reset API endpoints
-  - [ ] Add "Forgot Password" link to signin page
-  - [ ] Create reset password page
-  - [ ] Email template for password reset
+- [x] **Forgot Password Flow** ✅ COMPLETED (Aug 28, 2025)
+  - [x] Create password reset API endpoints (`/api/auth/forgot-password`, `/api/auth/reset-password`)
+  - [x] Add "Forgot Password" link to signin page
+  - [x] Create forgot password and reset password pages
+  - [x] Implement secure token generation and validation
+  - [x] Email template for password reset (basic console logging implemented)
 
 ### Account Management
 
