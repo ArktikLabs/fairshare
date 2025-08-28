@@ -37,7 +37,7 @@ Current development status and next steps for the FairShare expense-sharing appl
 
 ### Account Management Enhancements
 
-- 🔄 **Password Change Flow** - API endpoints ready, UI pending
+- ✅ **Password Change Flow** - COMPLETED: API endpoints + UI integration with validation
 - 🔄 **Profile Picture Upload** - Backend ready, UI implementation needed
 - 🔄 **Account Preferences** - Database model ready
 
