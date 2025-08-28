@@ -1,15 +1,16 @@
 # FairShare Documentation
 
-Complete documentation for the FairShare expense-sharing application, including setup guides, design system, and troubleshooting.
+Complete documentation for the FairShare expense-sharing application, including setup guides, design system, troubleshooting, and development roadmap.
 
 ## 📖 Table of Contents
 
 - [🎨 Design System](#-design-system)
 - [⚙️ Setup & Implementation](#%EF%B8%8F-setup--implementation)
 - [🔧 Troubleshooting](#-troubleshooting)
+- [📋 Development Planning](#-development-planning)
 - [📱 Application Overview](#-application-overview)
 
-## � Design System
+## 🎨 Design System
 
 The FairShare Design System provides a unified set of design principles, components, and guidelines to ensure consistency across all user interfaces.
 
@@ -43,6 +44,15 @@ Common issues and their solutions.
 |------|-------------|
 | [Auto Logout Fix](./troubleshooting/AUTO_LOGOUT_FIX.md) | Resolving auto-logout issues after WebAuthn authentication |
 
+## 📋 Development Planning
+
+Comprehensive roadmap and task management for FairShare development.
+
+| File | Description |
+|------|-------------|
+| [Development Roadmap](./TODO.md) | Complete feature roadmap organized by priority |
+| [Quick Wins](./QUICK_WINS.md) | High-impact, low-effort tasks for immediate implementation |
+
 ## 📱 Application Overview
 
 FairShare is a modern expense-sharing application built with:
@@ -56,10 +66,22 @@ FairShare is a modern expense-sharing application built with:
 ### Key Features
 
 - 🔐 **Secure Authentication** - Password and passwordless (WebAuthn) login
-- 💰 **Expense Tracking** - Track and split shared expenses
-- 👥 **Group Management** - Organize expenses by groups
+- 💰 **Expense Tracking** - Track and split shared expenses (planned)
+- 👥 **Group Management** - Organize expenses by groups (planned)
 - 📱 **Responsive Design** - Works on all device sizes
 - ♿ **Accessibility** - WCAG compliant design system
+
+### Current Implementation Status
+
+| Feature | Status |
+|---------|--------|
+| User Authentication | ✅ Complete |
+| WebAuthn (Passkey) Support | ✅ Complete |
+| Account Management | ✅ Complete |
+| Design System | ✅ Complete |
+| Expense Management | 🚧 Planned |
+| Group Management | 🚧 Planned |
+| Settlement System | 🚧 Planned |
 
 ## 🚀 Quick Start
 
@@ -73,47 +95,16 @@ cp .env.example .env
 # Start development server
 pnpm dev
 ```
-| [Animation](./animation.md)   | Motion design and interaction patterns             |
-
-## 🧩 Components
-
-### Core Components
-
-- **Navigation** - Headers, menus, breadcrumbs
-- **Buttons** - Primary, secondary, and utility actions
-- **Forms** - Inputs, validation, and form layouts
-- **Cards** - Content containers and information display
-- **Modals** - Overlays, dialogs, and confirmations
-
-### Application Components
-
-- **Expense Cards** - Expense display and management
-- **User Avatars** - Profile pictures and user representation
-- **Group Management** - Group creation and member handling
-- **Payment Status** - Transaction states and progress
-
-## 🎨 Design Tokens
-
-Design tokens are the atomic elements of the design system:
-
-```css
-/* Example tokens */
---color-primary-600: #059669;
---color-gray-900: #111827;
---font-display: "Geist", "Inter", system-ui, sans-serif;
---spacing-4: 1rem;
---border-radius-lg: 0.5rem;
-```
 
 ## 🛠 Contributing
 
-When contributing to the design system:
+When contributing to FairShare:
 
-1. Follow established patterns and conventions
+1. Follow the established design system patterns
 2. Update documentation for any changes
 3. Test across different devices and browsers
 4. Ensure accessibility compliance
-5. Maintain design token consistency
+5. Maintain consistent code quality
 
 ## 📱 Browser Support
 
