@@ -24,6 +24,11 @@ interface NotificationTemplate {
   updatedAt: string;
 }
 
+interface NotificationWithSettings extends NotificationTemplate {
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+}
+
 interface UserPreferences {
   id: string;
   userId: string;
@@ -258,7 +263,7 @@ export function useUserPreferences() {
       });
       
       return acc;
-    }, {} as Record<string, any[]>);
+    }, {} as Record<string, NotificationWithSettings[]>);
   };
 
   // Theme-specific utilities

@@ -5,7 +5,7 @@ export function formatCurrency(amount: number, currencyCode: string = 'USD', loc
       style: 'currency',
       currency: currencyCode,
     }).format(amount);
-  } catch (error) {
+  } catch {
     // Fallback if currency/locale is not supported
     return `${currencyCode} ${amount.toFixed(2)}`;
   }
@@ -23,7 +23,7 @@ export function formatDateTime(date: Date | string, timezone: string = 'UTC', lo
       hour: '2-digit',
       minute: '2-digit',
     }).format(dateObj);
-  } catch (error) {
+  } catch {
     // Fallback if timezone is not supported
     const dateObj = typeof date === 'string' ? new Date(date) : date;
     return dateObj.toLocaleDateString();
@@ -40,7 +40,7 @@ export function getCurrentTime(timezone: string = 'UTC', locale: string = 'en-US
       second: '2-digit',
       timeZoneName: 'short',
     }).format(new Date());
-  } catch (error) {
+  } catch {
     // Fallback
     return new Date().toLocaleTimeString();
   }
@@ -102,7 +102,7 @@ export function getRelativeTime(date: Date | string, timezone: string = 'UTC', l
     } else {
       return rtf.format(Math.round(diffInSeconds / 86400), 'day');
     }
-  } catch (error) {
+  } catch {
     // Fallback
     const dateObj = typeof date === 'string' ? new Date(date) : date;
     return dateObj.toLocaleDateString();
