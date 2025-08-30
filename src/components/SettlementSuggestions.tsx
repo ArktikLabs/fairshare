@@ -1,33 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { formatSettlementAmount, getSettlementSummary, getUserSettlements } from "../lib/settlement-utils";
-
-interface UserBalance {
-  userId: string;
-  name: string;
-  email: string;
-  totalPaid: number;
-  totalOwed: number;
-  netBalance: number;
-}
-
-interface Settlement {
-  fromUserId: string;
-  fromUserName: string;
-  toUserId: string;
-  toUserName: string;
-  amount: number;
-  currency: string;
-}
-
-interface GroupSettlements {
-  groupId: string;
-  currency: string;
-  balances: UserBalance[];
-  suggestedSettlements: Settlement[];
-  totalTransactions: number;
-}
+import { 
+  formatSettlementAmount, 
+  getSettlementSummary, 
+  getUserSettlements,
+  UserBalance,
+  Settlement,
+  GroupSettlements
+} from "../lib/settlement-utils";
 
 interface Props {
   group: {

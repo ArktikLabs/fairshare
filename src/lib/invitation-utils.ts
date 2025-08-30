@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { GroupRole } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
 
 export interface InvitationData {
   email: string;
@@ -17,15 +19,46 @@ export interface InvitationResult {
 }
 
 /**
+ * Generate a cryptographically secure, URL-safe token for invitations
+ */
+function generateSecureToken(): string {
+  const randomBytes = crypto.randomBytes(32);
+  return randomBytes.toString('base64url');
+}
+
+/**
+ * Generate a unique invitation token, retrying on collision
+ */
+async function generateUniqueInvitationToken(maxRetries = 5): Promise<string> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const token = generateSecureToken();
+    
+    // Check if token already exists
+    const existingInvitation = await prisma.groupInvitation.findUnique({
+      where: { token },
+    });
+    
+    if (!existingInvitation) {
+      return token;
+    }
+  }
+  
+  throw new Error('Failed to generate unique invitation token after multiple attempts');
+}
+
+/**
  * Create a group invitation for a user who doesn't have an account yet
  */
 export async function createGroupInvitation(
   data: InvitationData
 ): Promise<InvitationResult> {
+  // Normalize email for consistent lookups and storage
+  const email = data.email.trim().toLowerCase();
+
   // Check if there's already an active invitation for this email and group
   const existingInvitation = await prisma.groupInvitation.findFirst({
     where: {
-      email: data.email,
+      email,
       groupId: data.groupId,
       isActive: true,
       expiresAt: {
@@ -45,16 +78,18 @@ export async function createGroupInvitation(
     };
   }
 
-  // Create new invitation that expires in 7 days
+  // Generate secure token and create new invitation that expires in 7 days
+  const secureToken = await generateUniqueInvitationToken();
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
   const invitation = await prisma.groupInvitation.create({
     data: {
-      email: data.email,
+      email,
       groupId: data.groupId,
       role: data.role,
       invitedBy: data.invitedBy,
+      token: secureToken,
       expiresAt,
     },
   });
@@ -119,13 +154,17 @@ export async function acceptInvitation(
     throw new Error("Invalid or expired invitation");
   }
 
-  if (invitation.email !== userData.email) {
+  // Normalize emails for comparison and database query
+  const normalizedInvitationEmail = invitation.email.trim().toLowerCase();
+  const normalizedUserEmail = userData.email.trim().toLowerCase();
+
+  if (normalizedInvitationEmail !== normalizedUserEmail) {
     throw new Error("Email doesn't match invitation");
   }
 
   // Check if user already exists
   const existingUser = await prisma.user.findUnique({
-    where: { email: userData.email },
+    where: { email: normalizedUserEmail },
   });
 
   if (existingUser) {
@@ -171,14 +210,18 @@ export async function acceptInvitation(
     return { user: existingUser, group: invitation.group };
   }
 
+  // Hash password before creating user
+  const rounds = parseInt(process.env.BCRYPT_ROUNDS || "12", 10);
+  const passwordHash = await bcrypt.hash(userData.password, rounds);
+
   // Create new user and group membership in a transaction
   const result = await prisma.$transaction(async (tx) => {
     // Create user
     const newUser = await tx.user.create({
       data: {
         name: userData.name,
-        email: userData.email,
-        password: userData.password,
+        email: normalizedUserEmail,
+        password: passwordHash,
         emailVerified: new Date(), // Auto-verify email for invited users
       },
     });
@@ -241,10 +284,13 @@ export async function getGroupInvitations(groupId: string) {
     },
   });
 
-  return invitations.map((invitation) => ({
-    ...invitation,
-    inviteLink: generateInviteLink(invitation.token),
-  }));
+  return invitations.map((invitation) => {
+    const { token, ...invitationWithoutToken } = invitation;
+    return {
+      ...invitationWithoutToken,
+      inviteLink: generateInviteLink(token),
+    };
+  });
 }
 
 /**

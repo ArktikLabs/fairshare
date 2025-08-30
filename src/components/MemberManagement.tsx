@@ -144,12 +144,28 @@ export default function MemberManagement({
   };
 
   const copyInvitationLink = async (token: string) => {
-    const link = `${
-      typeof window !== "undefined" ? window.location.origin : ""
-    }/invite/${token}`;
-    await navigator.clipboard.writeText(link);
-    setCopiedLink(token);
-    setTimeout(() => setCopiedLink(""), 2000);
+    try {
+      // Call server endpoint to create short code
+      const response = await fetch(`/api/invitations/${token}/shorten`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create short link');
+      }
+
+      const { shortUrl } = await response.json();
+      await navigator.clipboard.writeText(shortUrl);
+      setCopiedLink(token);
+      setTimeout(() => setCopiedLink(""), 2000);
+    } catch (error) {
+      console.error('Error copying invitation link:', error);
+      setError('Failed to create shareable link');
+    }
   };
 
   const handleRemoveMember = async (memberId: string, memberName: string) => {
