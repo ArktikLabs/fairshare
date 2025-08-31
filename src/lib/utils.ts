@@ -52,11 +52,8 @@ export function capitalize(str: string): string {
  * Get initials from a name
  */
 export function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase())
-    .slice(0, 2)
-    .join('');
+  const parts = name.trim().split(' ').filter(Boolean);
+  return parts.slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
 }
 
 /**
@@ -86,11 +83,11 @@ export function round(num: number): number {
  * Check if two numbers are approximately equal (within 1 cent)
  */
 export function isApproximatelyEqual(a: number, b: number, tolerance: number = 0.01): boolean {
-  return Math.abs(a - b) < tolerance;
+  return Math.abs(a - b) <= tolerance;
 }
 
 /**
- * Generate a random color for avatars
+ * Generate a deterministic color for avatars based on input string
  */
 export function generateAvatarColor(str: string): string {
   const colors = [
@@ -109,7 +106,7 @@ export function generateAvatarColor(str: string): string {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
   }
   
-  return colors[Math.abs(hash) % colors.length];
+  return colors[Math.abs(hash) % colors.length] || colors[0];
 }
 
 /**
@@ -145,6 +142,8 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
  * Deep clone an object
  */
 export function deepClone<T>(obj: T): T {
+  // @ts-ignore structuredClone is available in modern runtimes
+  if (typeof structuredClone === 'function') return structuredClone(obj);
   return JSON.parse(JSON.stringify(obj));
 }
 
@@ -155,6 +154,9 @@ export function isEmpty(value: unknown): boolean {
   if (value == null) return true;
   if (typeof value === 'string') return value.trim() === '';
   if (Array.isArray(value)) return value.length === 0;
-  if (typeof value === 'object') return Object.keys(value).length === 0;
+  if (typeof value === 'object') {
+    if (value instanceof Date) return false;
+    return Object.keys(value as Record<string, unknown>).length === 0;
+  }
   return false;
 }

@@ -278,6 +278,7 @@ model Expense {
 
   @@index([groupId])
   @@index([date])
+  @@index([groupId, date])
   @@index([isDeleted])
   @@index([isSettled])
 }

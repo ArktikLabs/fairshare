@@ -11,14 +11,19 @@ export async function POST() {
 
     // For now, just return a success message
     // This would export user data including expenses, groups, etc.
-    return NextResponse.json({
-      message: "Account data export initiated",
-      status: "processing",
-      estimatedTime: "5-10 minutes",
-      downloadUrl: null, // Would be generated after processing
-    });
+    return NextResponse.json(
+      {
+        message: "Account data export requested",
+        status: "processing",
+        downloadUrl: null, // Will be provided when ready
+      },
+      { status: 202, headers: { "Cache-Control": "no-store" } }
+    );
   } catch (error) {
-    console.error("Data export error:", error);
+    console.error("Data export error", {
+      route: "/api/user/export",
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

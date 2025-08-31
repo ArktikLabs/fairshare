@@ -57,7 +57,7 @@ export async function POST(
           },
         });
 
-        return NextResponse.redirect(new URL(`/groups/${groupId}`, request.url));
+        return NextResponse.redirect(new URL(`/groups/${groupId}`, request.url), 303);
       }
     }
 
@@ -71,7 +71,7 @@ export async function POST(
     });
 
     // Redirect to the group page
-    return NextResponse.redirect(new URL(`/groups/${groupId}`, request.url));
+    return NextResponse.redirect(new URL(`/groups/${groupId}`, request.url), 303);
   } catch (error) {
     console.error("Error joining group:", error);
     return NextResponse.json(

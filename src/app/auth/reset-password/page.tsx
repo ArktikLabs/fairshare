@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -10,25 +10,19 @@ function ResetPasswordContent() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
-  const [token, setToken] = useState<string | null>(null);
   const searchParams = useSearchParams();
+  const token = searchParams.get("token");
 
   useEffect(() => {
-    const tokenParam = searchParams.get("token");
-    if (!tokenParam) {
-      setError("Invalid or missing reset token");
-    } else {
-      setToken(tokenParam);
+    if (token && typeof window !== "undefined") {
+      // Keep path, drop query
+      window.history.replaceState(null, "", window.location.pathname);
     }
-  }, [searchParams]);
+  }, [token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!token) {
-      setError("Invalid or missing reset token");
-      return;
-    }
 
     if (!password || !confirmPassword) {
       setError("Please fill in all fields");
@@ -117,7 +111,7 @@ function ResetPasswordContent() {
     );
   }
 
-  if (!token || error === "Invalid or missing reset token") {
+  if (!token) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-md w-full">
@@ -191,8 +185,13 @@ function ResetPasswordContent() {
         {/* Main Card */}
         <div className="bg-white rounded-2xl shadow-xl p-8 space-y-6">
           {/* Error Message */}
-          {error && error !== "Invalid or missing reset token" && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl font-body">
+          {error && (
+            <div
+              id="form-error"
+              role="alert"
+              aria-live="assertive"
+              className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl font-body"
+            >
               <div className="flex items-center">
                 <span className="mr-2">⚠️</span>
                 {error}
@@ -219,6 +218,8 @@ function ResetPasswordContent() {
                 placeholder="Enter new password (min 8 characters)"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? "form-error" : undefined}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-body text-gray-900 placeholder-gray-400"
                 disabled={loading}
               />
@@ -241,6 +242,8 @@ function ResetPasswordContent() {
                 placeholder="Confirm new password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? "form-error" : undefined}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-body text-gray-900 placeholder-gray-400"
                 disabled={loading}
               />
@@ -250,6 +253,7 @@ function ResetPasswordContent() {
               <button
                 type="submit"
                 disabled={loading || !password || !confirmPassword}
+                aria-busy={loading}
                 className="w-full bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? "Resetting..." : "Reset password"}
@@ -272,29 +276,6 @@ function ResetPasswordContent() {
   );
 }
 
-function LoadingFallback() {
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <Link href="/" className="inline-block mb-6">
-            <h1 className="text-3xl font-display tracking-tight text-gray-900">
-              Fair<span className="text-green-600">Share</span>
-            </h1>
-          </Link>
-          <h2 className="text-2xl font-display tracking-tight text-gray-900 mb-2">
-            Loading...
-          </h2>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function ResetPassword() {
-  return (
-    <Suspense fallback={<LoadingFallback />}>
-      <ResetPasswordContent />
-    </Suspense>
-  );
+  return <ResetPasswordContent />;
 }
