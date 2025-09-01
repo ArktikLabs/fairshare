@@ -30,7 +30,7 @@ export default async function GroupInvitePage({ params, searchParams }: Props) {
     where: { id },
     include: {
       members: {
-        where: { isActive: true },
+        where: { status: "ACTIVE" },
         include: {
           user: {
             select: {

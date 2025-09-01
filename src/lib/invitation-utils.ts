@@ -177,12 +177,12 @@ export async function acceptInvitation(
     });
 
     if (existingMember) {
-      if (!existingMember.isActive) {
+      if (existingMember.status !== "ACTIVE") {
         // Reactivate existing member
         await prisma.groupMember.update({
           where: { id: existingMember.id },
           data: {
-            isActive: true,
+            status: "ACTIVE",
             role: invitation.role,
           },
         });
@@ -309,7 +309,7 @@ export async function cancelInvitation(invitationId: string, userId: string) {
           members: {
             where: {
               userId,
-              isActive: true,
+              status: "ACTIVE",
               role: { in: ["ADMIN"] },
             },
           },

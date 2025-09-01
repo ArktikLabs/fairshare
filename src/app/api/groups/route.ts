@@ -39,6 +39,8 @@ export async function POST(request: NextRequest) {
           groupId: newGroup.id,
           userId: session.user.id,
           role: "ADMIN",
+          status: "ACTIVE",
+          joinedAt: new Date(),
         },
       });
 
@@ -81,13 +83,13 @@ export async function GET() {
         members: {
           some: {
             userId: session.user.id,
-            isActive: true,
+            status: { in: ["ACTIVE", "INVITED"] },
           },
         },
       },
       include: {
         members: {
-          where: { isActive: true },
+          where: { status: { in: ["ACTIVE", "INVITED"] } },
           include: {
             user: {
               select: { id: true, name: true, email: true },
@@ -99,6 +101,9 @@ export async function GET() {
             expenses: {
               where: { isDeleted: false },
             },
+            members: {
+              where: { status: { in: ["ACTIVE", "INVITED"] } },
+            },
           },
         },
       },
@@ -107,7 +112,16 @@ export async function GET() {
       },
     });
 
-    return NextResponse.json(groups);
+    // Add member status breakdown
+    const groupsWithStats = groups.map(group => ({
+      ...group,
+      memberStatusCount: {
+        active: group.members.filter(m => m.status === "ACTIVE").length,
+        invited: group.members.filter(m => m.status === "INVITED").length,
+      }
+    }));
+
+    return NextResponse.json(groupsWithStats);
   } catch (error) {
     console.error("Error fetching groups:", error);
     return NextResponse.json(

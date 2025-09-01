@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { createGroupInvitation } from "@/lib/invitation-utils";
+import { inviteUserToGroup, getUserDisplayName, isGhostUser } from "@/lib/ghost-users";
 
 const AddMemberSchema = z
   .object({
@@ -20,8 +20,8 @@ async function validateGroupAdminAccess(userId: string, groupId: string) {
     where: {
       groupId,
       userId,
-      isActive: true,
-      role: { in: ["ADMIN"] },
+      status: "ACTIVE",
+      role: { in: ["OWNER", "ADMIN"] },
     },
   });
 
@@ -50,7 +50,7 @@ export async function GET(
       where: {
         groupId,
         userId: session.user.id,
-        isActive: true,
+        status: "ACTIVE",
       },
     });
 
@@ -61,7 +61,7 @@ export async function GET(
     const members = await prisma.groupMember.findMany({
       where: {
         groupId,
-        isActive: true,
+        status: { in: ["INVITED", "ACTIVE"] }, // Show both invited and active members
       },
       include: {
         user: {
@@ -70,15 +70,36 @@ export async function GET(
             name: true,
             email: true,
             image: true,
+            status: true,
+            displayName: true,
+          },
+        },
+        inviter: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
           },
         },
       },
-      orderBy: {
-        joinedAt: "asc",
-      },
+      orderBy: [
+        { status: "asc" }, // Active members first
+        { joinedAt: "asc" },
+        { createdAt: "asc" },
+      ],
     });
 
-    return NextResponse.json(members);
+    // Transform the response to include display names and ghost status
+    const transformedMembers = members.map(member => ({
+      ...member,
+      user: {
+        ...member.user,
+        displayName: getUserDisplayName(member.user),
+        isGhost: isGhostUser(member.user),
+      }
+    }));
+
+    return NextResponse.json(transformedMembers);
   } catch (error) {
     console.error("Error fetching group members:", error);
     return NextResponse.json(
@@ -138,87 +159,73 @@ export async function POST(
 
     const validatedData = AddMemberSchema.parse(body);
 
-    // Find user by userId or email
-    let user;
-    if (validatedData.userId) {
-      user = await prisma.user.findUnique({
-        where: { id: validatedData.userId },
+    // Use Ghost Users system for all invitations
+    let email = validatedData.email;
+    let userId = validatedData.userId;
+
+    // If userId is provided, get the user's email
+    if (userId && !email) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true },
       });
-    } else if (validatedData.email) {
-      user = await prisma.user.findUnique({
-        where: { email: validatedData.email },
-      });
+      if (!user) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 });
+      }
+      email = user.email;
     }
 
-    // If user doesn't exist, create an invitation
-    if (!user && validatedData.email) {
-      const invitation = await createGroupInvitation({
+    if (!email) {
+      return NextResponse.json(
+        { error: "Email is required for invitations" },
+        { status: 400 }
+      );
+    }
+
+    try {
+      // Create invitation using Ghost Users system
+      const groupMember = await inviteUserToGroup({
+        email,
         groupId,
-        email: validatedData.email,
-        role: validatedData.role,
         invitedBy: session.user.id,
+        role: validatedData.role,
+        expiresInDays: 7,
       });
 
       // TODO: Send email invitation here
       console.log(
-        `Invitation created for ${validatedData.email}: ${invitation.token}`
+        `User invited to group: ${email} (${groupMember.user.status === 'GHOST' ? 'new ghost user' : 'existing user'})`
       );
 
+      const inviteLink = groupMember.inviteToken
+        ? `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/invite/${groupMember.inviteToken}`
+        : null;
+
       return NextResponse.json({
-        message: "Invitation sent successfully",
+        message: "User invited successfully",
         isInvitation: true,
-        invitation: {
-          id: invitation.id,
-          email: invitation.email,
-          role: validatedData.role,
-          inviteLink: invitation.inviteLink,
+        member: {
+          id: groupMember.id,
+          status: groupMember.status,
+          role: groupMember.role,
+          user: {
+            id: groupMember.user.id,
+            email: groupMember.user.email,
+            displayName: getUserDisplayName(groupMember.user),
+            isGhost: isGhostUser(groupMember.user),
+          },
+          inviteLink,
         },
       });
-    }
-
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    // Check if user is already a member
-    const existingMember = await prisma.groupMember.findFirst({
-      where: {
-        groupId,
-        userId: user.id,
-      },
-    });
-
-    if (existingMember) {
-      if (existingMember.isActive) {
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("already")) {
         return NextResponse.json(
-          { error: "User is already a member of this group" },
+          { error: error.message },
           { status: 400 }
         );
-      } else {
-        // Reactivate existing member
-        await prisma.groupMember.update({
-          where: { id: existingMember.id },
-          data: {
-            isActive: true,
-            role: validatedData.role,
-          },
-        });
       }
-    } else {
-      // Add new member
-      await prisma.groupMember.create({
-        data: {
-          groupId,
-          userId: user.id,
-          role: validatedData.role,
-        },
-      });
+      throw error; // Re-throw for general error handling
     }
-
-    return NextResponse.json({
-      message: "Member added successfully",
-      isInvitation: false,
-    });
   } catch (error) {
     console.error("Error adding member:", error);
     if (error instanceof z.ZodError) {

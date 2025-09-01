@@ -248,7 +248,7 @@ async function validateGroupAccess(userId: string, groupId?: string) {
     where: {
       groupId,
       userId,
-      isActive: true,
+      status: "ACTIVE",
     },
   });
 

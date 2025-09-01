@@ -30,7 +30,7 @@ export async function GET(
       where: {
         groupId,
         userId: user.id,
-        isActive: true,
+        status: "ACTIVE",
       },
     });
 
@@ -46,7 +46,7 @@ export async function GET(
       where: { id: groupId },
       include: {
         members: {
-          where: { isActive: true },
+          where: { status: "ACTIVE" },
           include: {
             user: {
               select: {

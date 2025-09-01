@@ -69,7 +69,7 @@ export async function POST(
             members: {
               where: {
                 userId: session.user.id,
-                isActive: true,
+                status: "ACTIVE",
                 role: { in: ["OWNER", "ADMIN"] },
               },
             },

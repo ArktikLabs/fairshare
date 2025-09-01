@@ -18,6 +18,10 @@ interface Group {
     expenses: number;
     members: number;
   };
+  memberStatusCount?: {
+    active: number;
+    invited: number;
+  };
 }
 
 interface Expense {
@@ -81,7 +85,10 @@ export default function Dashboard() {
 
         if (groupsRes.ok) {
           const groupsData = await groupsRes.json();
-          setGroups(groupsData.groups || []);
+          console.log('Groups API response:', groupsData);
+          setGroups(groupsData || []);
+        } else {
+          console.error('Groups API error:', groupsRes.status, groupsRes.statusText);
         }
       } catch (err) {
         console.error("Error fetching dashboard data:", err);
@@ -464,9 +471,23 @@ export default function Dashboard() {
                               <h3 className="font-medium text-gray-900 font-body">
                                 {group.name}
                               </h3>
-                              <p className="text-sm text-gray-600">
-                                {group._count.members} members • {group._count.expenses} expenses
-                              </p>
+                              <div className="text-sm text-gray-600 space-y-1">
+                                <div>
+                                  {group.memberStatusCount ? (
+                                    <>
+                                      {group.memberStatusCount.active} active
+                                      {group.memberStatusCount.invited > 0 && (
+                                        <span className="text-yellow-600">
+                                          {" "}• {group.memberStatusCount.invited} pending
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    `${group._count.members} members`
+                                  )}
+                                  {" "}• {group._count.expenses} expenses
+                                </div>
+                              </div>
                             </div>
                             <div className="text-xs text-gray-500 font-mono">
                               {group.currency}

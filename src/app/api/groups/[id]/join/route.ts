@@ -1,77 +1,66 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { acceptGroupInvitation } from "@/lib/ghost-users";
 
-// POST /api/groups/[id]/join - Join a group
+// POST /api/groups/[id]/join?token=<inviteToken> - Join a group via invitation
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const inviteToken = searchParams.get("token");
+
+    if (!inviteToken) {
+      return NextResponse.json(
+        { error: "Invitation token is required" },
+        { status: 400 }
+      );
     }
 
     const { id: groupId } = await params;
 
-    // Find the user
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    });
+    try {
+      // Accept invitation using Ghost Users system
+      const updatedMember = await acceptGroupInvitation(inviteToken, session.user.id);
 
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    // Check if group exists
-    const group = await prisma.group.findUnique({
-      where: { id: groupId },
-    });
-
-    if (!group) {
-      return NextResponse.json({ error: "Group not found" }, { status: 404 });
-    }
-
-    // Check if user is already a member
-    const existingMember = await prisma.groupMember.findFirst({
-      where: {
-        groupId,
-        userId: user.id,
-      },
-    });
-
-    if (existingMember) {
-      if (existingMember.isActive) {
+      // Verify the group ID matches
+      if (updatedMember.group.id !== groupId) {
         return NextResponse.json(
-          { error: "You are already a member of this group" },
+          { error: "Group ID mismatch" },
           { status: 400 }
         );
-      } else {
-        // Reactivate existing member
-        await prisma.groupMember.update({
-          where: { id: existingMember.id },
-          data: {
-            isActive: true,
-            role: "MEMBER",
-          },
-        });
-
-        return NextResponse.redirect(new URL(`/groups/${groupId}`, request.url), 303);
       }
+
+      console.log(
+        `User ${session.user.id} joined group ${groupId} via invitation`
+      );
+
+      // Redirect to the group page
+      return NextResponse.redirect(new URL(`/groups/${groupId}`, request.url), 303);
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes("Invalid") || error.message.includes("expired")) {
+          return NextResponse.json(
+            { error: "Invalid or expired invitation" },
+            { status: 400 }
+          );
+        }
+        if (error.message.includes("no longer valid")) {
+          return NextResponse.json(
+            { error: "Invitation is no longer valid" },
+            { status: 400 }
+          );
+        }
+      }
+      throw error; // Re-throw for general error handling
     }
-
-    // Create new member
-    await prisma.groupMember.create({
-      data: {
-        groupId,
-        userId: user.id,
-        role: "MEMBER",
-      },
-    });
-
-    // Redirect to the group page
-    return NextResponse.redirect(new URL(`/groups/${groupId}`, request.url), 303);
   } catch (error) {
     console.error("Error joining group:", error);
     return NextResponse.json(

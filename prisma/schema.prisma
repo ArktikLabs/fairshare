@@ -42,15 +42,36 @@ model Session {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+enum UserStatus {
+  GHOST          // Invited but never signed up
+  PENDING        // Signed up, email not verified
+  ACTIVE         // Verified and active
+  INACTIVE       // Deactivated
+  MERGED         // Merged into another account
+}
+
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique // TODO: Consider CITEXT or unique index on lower(email) for case-insensitive uniqueness
-  emailVerified DateTime?
-  image         String?
-  password      String?   // Optional for OAuth users
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  name            String?
+  email           String    @unique // Required for ghost users
+  emailVerified   DateTime?
+  image           String?
+  password        String?   // Optional for OAuth users, null for ghost users
+  status          UserStatus @default(GHOST) // New users start as GHOST until they sign up
+  displayName     String?   // Override name for ghost users
+  
+  // Ghost user metadata
+  invitedAt       DateTime?  // When first invited anywhere
+  lastInvitedAt   DateTime?  // Most recent invitation
+  signupToken     String?    // For account activation
+  
+  // Activity tracking
+  lastActivityAt  DateTime?
+  isCleanupEligible Boolean  @default(false)
+  
+  // Audit fields
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   
   // Auth.js relations
   accounts      Account[]
@@ -62,7 +83,7 @@ model User {
   // RFC: Expense and Group Management relations
   groupMemberships  GroupMember[]
   createdGroups     Group[]           @relation("GroupCreator")
-  sentInvitations   GroupInvitation[] @relation("InvitationInviter")
+  invitedMembers    GroupMember[]     @relation("MemberInviter")
   expensePayments   ExpensePayer[]    @relation("ExpensePayers")
   expenseSplits     ExpenseSplit[]
   expenseItemSplits ExpenseItemSplit[] @relation("ExpenseItemSplits")
@@ -171,7 +192,6 @@ model Group {
   // Relations
   creator     User           @relation("GroupCreator", fields: [createdBy], references: [id])
   members     GroupMember[]
-  invitations GroupInvitation[]
   expenses    Expense[]
   settings    GroupSetting[]
   settlements Settlement[]
@@ -180,22 +200,40 @@ model Group {
   @@index([isActive])
 }
 
+enum MemberStatus {
+  INVITED        // Invited, may be ghost user
+  ACTIVE         // Active in group
+  LEFT           // Left group
+  REMOVED        // Removed by admin
+}
+
 model GroupMember {
-  id        String   @id @default(cuid())
-  groupId   String
-  userId    String
-  role      GroupRole @default(MEMBER)
-  joinedAt  DateTime @default(now())
-  leftAt    DateTime?
-  isActive  Boolean  @default(true)
+  id          String       @id @default(cuid())
+  groupId     String
+  userId      String       // Always present (ghost users created immediately)
+  role        GroupRole    @default(MEMBER)
+  status      MemberStatus @default(INVITED) // New members start as INVITED
+  
+  // Invitation metadata
+  invitedBy   String?      // Who invited this member
+  inviteToken String?      @unique // For invitation links
+  expiresAt   DateTime?    // Invitation expiry
+  
+  // Member lifecycle
+  joinedAt    DateTime?    // When they accepted invitation
+  leftAt      DateTime?    // When they left or were removed
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   // Relations
-  group     Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group       Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inviter     User?        @relation("MemberInviter", fields: [invitedBy], references: [id])
 
   @@unique([groupId, userId])
   @@index([userId])
-  @@index([groupId, isActive])
+  @@index([groupId, status])
+  @@index([inviteToken])
 }
 
 enum GroupRole {
@@ -215,31 +253,7 @@ model GroupSetting {
   @@unique([groupId, key])
 }
 
-model GroupInvitation {
-  id        String   @id @default(cuid())
-  email     String
-  groupId   String
-  role      GroupRole @default(MEMBER)
-  token     String   @unique @default(cuid())
-  
-  invitedBy String
-  inviter   User     @relation("InvitationInviter", fields: [invitedBy], references: [id])
-  
-  expiresAt DateTime
-  acceptedAt DateTime?
-  isActive  Boolean  @default(true)
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
-
-  @@unique([email, groupId])
-  @@index([token])
-  @@index([email])
-  @@index([groupId])
-  @@index([expiresAt])
-}
+// GroupInvitation model removed - functionality moved to GroupMember with ghost users
 
 // RFC: Expense Management Models
 model Expense {

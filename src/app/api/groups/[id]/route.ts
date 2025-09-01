@@ -16,7 +16,7 @@ async function validateGroupAdminAccess(userId: string, groupId: string) {
     where: {
       groupId,
       userId,
-      isActive: true,
+      status: "ACTIVE",
       role: { in: ["ADMIN"] },
     },
   });
@@ -34,7 +34,7 @@ async function validateGroupAccess(userId: string, groupId: string) {
     where: {
       groupId,
       userId,
-      isActive: true,
+      status: "ACTIVE",
     },
   });
 
@@ -71,7 +71,7 @@ export async function GET(
           select: { id: true, name: true, email: true },
         },
         members: {
-          where: { isActive: true },
+          where: { status: { in: ["ACTIVE", "INVITED"] } },
           include: {
             user: {
               select: { id: true, name: true, email: true },
@@ -105,7 +105,7 @@ export async function GET(
               where: { isDeleted: false },
             },
             members: {
-              where: { isActive: true },
+              where: { status: { in: ["ACTIVE", "INVITED"] } },
             },
           },
         },
@@ -158,7 +158,7 @@ export async function PUT(
       data: validatedData,
       include: {
         members: {
-          where: { isActive: true },
+          where: { status: { in: ["ACTIVE", "INVITED"] } },
           include: {
             user: {
               select: { id: true, name: true, email: true },
@@ -223,12 +223,12 @@ export async function DELETE(
     await prisma.$transaction(async (tx) => {
       await tx.group.update({
         where: { id: groupId },
-        data: { isActive: false },
+        data: { status: "LEFT" },
       });
 
       await tx.groupMember.updateMany({
         where: { groupId },
-        data: { isActive: false },
+        data: { status: "LEFT" },
       });
 
       // Mark expenses as deleted

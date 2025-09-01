@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getGroupInvitations, cancelInvitation } from "@/lib/invitation-utils";
+import { prisma } from "@/lib/prisma";
+import { getUserDisplayName, isGhostUser } from "@/lib/ghost-users";
 
 // Helper function to validate group admin access
 async function validateGroupAdminAccess(userId: string, groupId: string) {
-  const { prisma } = await import("@/lib/prisma");
   const member = await prisma.groupMember.findFirst({
     where: {
       groupId,
       userId,
-      isActive: true,
-      role: { in: ["ADMIN"] },
+      status: "ACTIVE",
+      role: { in: ["OWNER", "ADMIN"] },
     },
   });
 
@@ -37,9 +37,57 @@ export async function GET(
     // Validate admin access
     await validateGroupAdminAccess(session.user.id, groupId);
 
-    const invitations = await getGroupInvitations(groupId);
+    // Get pending invitations (invited members who haven't joined yet)
+    const invitations = await prisma.groupMember.findMany({
+      where: {
+        groupId,
+        status: "INVITED", // Only get invited members
+        expiresAt: {
+          gt: new Date(), // Not expired
+        },
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            displayName: true,
+            status: true,
+          },
+        },
+        inviter: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
 
-    return NextResponse.json(invitations);
+    // Transform response to match expected format
+    const transformedInvitations = invitations.map(invitation => ({
+      id: invitation.id,
+      email: invitation.user.email,
+      role: invitation.role,
+      createdAt: invitation.createdAt,
+      expiresAt: invitation.expiresAt,
+      inviteLink: invitation.inviteToken
+        ? `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/invite/${invitation.inviteToken}`
+        : null,
+      user: {
+        ...invitation.user,
+        displayName: getUserDisplayName(invitation.user),
+        isGhost: isGhostUser(invitation.user),
+      },
+      inviter: invitation.inviter,
+    }));
+
+    return NextResponse.json(transformedInvitations);
   } catch (error) {
     console.error("Error fetching invitations:", error);
 
@@ -67,11 +115,11 @@ export async function DELETE(
 
     const { id: groupId } = await params;
     const { searchParams } = new URL(request.url);
-    const invitationId = searchParams.get("invitationId");
+    const memberId = searchParams.get("memberId"); // Now using memberId instead of invitationId
 
-    if (!invitationId) {
+    if (!memberId) {
       return NextResponse.json(
-        { error: "Invitation ID is required" },
+        { error: "Member ID is required" },
         { status: 400 }
       );
     }
@@ -79,7 +127,30 @@ export async function DELETE(
     // Validate admin access
     await validateGroupAdminAccess(session.user.id, groupId);
 
-    await cancelInvitation(invitationId, session.user.id);
+    // Find the invited member
+    const member = await prisma.groupMember.findFirst({
+      where: {
+        id: memberId,
+        groupId,
+        status: "INVITED",
+      },
+    });
+
+    if (!member) {
+      return NextResponse.json(
+        { error: "Invitation not found or already processed" },
+        { status: 404 }
+      );
+    }
+
+    // Cancel the invitation by updating status
+    await prisma.groupMember.update({
+      where: { id: memberId },
+      data: {
+        status: "REMOVED",
+        leftAt: new Date(),
+      },
+    });
 
     return NextResponse.json({ message: "Invitation cancelled successfully" });
   } catch (error) {

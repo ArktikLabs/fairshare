@@ -13,7 +13,7 @@ async function validateGroupAdminAccess(userId: string, groupId: string) {
     where: {
       groupId,
       userId,
-      isActive: true,
+      status: "ACTIVE",
       role: { in: ["ADMIN"] },
     },
   });
@@ -49,7 +49,7 @@ export async function PUT(
       where: {
         id: memberId,
         groupId,
-        isActive: true,
+        status: "ACTIVE",
       },
     });
 
@@ -118,7 +118,7 @@ export async function DELETE(
       where: {
         id: memberId,
         groupId,
-        isActive: true,
+        status: "ACTIVE",
       },
     });
 
@@ -160,7 +160,7 @@ export async function DELETE(
     await prisma.groupMember.update({
       where: { id: memberId },
       data: { 
-        isActive: false,
+        status: "LEFT",
         leftAt: new Date(),
       },
     });

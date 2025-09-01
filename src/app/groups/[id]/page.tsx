@@ -33,13 +33,13 @@ export default async function GroupDetailPage({ params }: Props) {
       members: {
         some: {
           userId: user.id,
-          isActive: true,
+          status: { in: ["ACTIVE", "INVITED"] },
         },
       },
     },
     include: {
       members: {
-        where: { isActive: true },
+        where: { status: { in: ["ACTIVE", "INVITED"] } },
         include: {
           user: {
             select: {
@@ -94,6 +94,7 @@ export default async function GroupDetailPage({ params }: Props) {
   group.members.forEach((member) => {
     memberBalances.set(member.userId, 0);
   });
+
 
   // Calculate balances from expenses
   group.expenses.forEach((expense) => {
@@ -189,59 +190,6 @@ export default async function GroupDetailPage({ params }: Props) {
           </div>
         </div>
 
-        {/* Member Balances */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Member Balances
-          </h2>
-          <div className="space-y-3">
-            {balanceArray.map((member) => {
-              const balance = member.balance;
-              const isPositive = balance > 0.01;
-              const isNegative = balance < -0.01;
-
-              return (
-                <div
-                  key={member.userId}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                      <span className="text-sm font-medium text-blue-600">
-                        {member.name.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
-                    <span className="font-medium text-gray-900">
-                      {member.name}
-                    </span>
-                    {member.userId === user.id && (
-                      <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">
-                        You
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    {isPositive && (
-                      <div className="text-green-600 font-medium">
-                        +{formatCurrency(balance, group.currency)}
-                      </div>
-                    )}
-                    {isNegative && (
-                      <div className="text-red-600 font-medium">
-                        {formatCurrency(balance, group.currency)}
-                      </div>
-                    )}
-                    {!isPositive && !isNegative && (
-                      <div className="text-gray-500 font-medium">
-                        {formatCurrency(0, group.currency)}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
 
         {/* Settlement Suggestions */}
         {settlements.length > 0 && (
@@ -289,11 +237,12 @@ export default async function GroupDetailPage({ params }: Props) {
             group={{
               id: group.id,
               name: group.name,
+              currency: group.currency,
               members: group.members.map((member) => ({
                 id: member.id,
                 userId: member.userId,
                 role: member.role as "ADMIN" | "MEMBER",
-                isActive: member.isActive,
+                status: member.status,
                 user: {
                   id: member.user.id,
                   name: member.user.name,
@@ -301,6 +250,7 @@ export default async function GroupDetailPage({ params }: Props) {
                 },
               })),
             }}
+            memberBalances={memberBalances}
             currentUser={user}
             isAdmin={isAdmin}
           />

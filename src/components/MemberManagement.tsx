@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { User } from "@prisma/client";
 
 interface GroupMember {
   id: string;
   userId: string;
   role: "ADMIN" | "MEMBER";
-  isActive: boolean;
+  status: "ACTIVE" | "INVITED" | "LEFT" | "REMOVED";
   user: {
     id: string;
     name: string | null;
@@ -15,34 +15,24 @@ interface GroupMember {
   };
 }
 
-interface GroupInvitation {
-  id: string;
-  email: string;
-  role: "ADMIN" | "MEMBER";
-  token: string;
-  expiresAt: string;
-  createdAt: string;
-  inviter: {
-    id: string;
-    name: string | null;
-    email: string;
-  };
-}
 
 interface Group {
   id: string;
   name: string;
+  currency: string;
   members: GroupMember[];
 }
 
 interface Props {
   group: Group;
+  memberBalances?: Map<string, number>;
   currentUser: User;
   isAdmin: boolean;
 }
 
 export default function MemberManagement({
   group,
+  memberBalances,
   currentUser,
   isAdmin,
 }: Props) {
@@ -51,32 +41,18 @@ export default function MemberManagement({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [showInviteLink, setShowInviteLink] = useState(false);
-  const [invitations, setInvitations] = useState<GroupInvitation[]>([]);
-  const [showInvitations, setShowInvitations] = useState(false);
-  const [copiedLink, setCopiedLink] = useState("");
+
+  const formatCurrency = (amount: number, currency = "USD") => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency
+    }).format(amount);
+  };
 
   const inviteLink = `${
     typeof window !== "undefined" ? window.location.origin : ""
   }/groups/${group.id}/invite`;
 
-  const fetchInvitations = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/groups/${group.id}/invitations`);
-      if (response.ok) {
-        const data = await response.json();
-        setInvitations(data);
-      }
-    } catch (error) {
-      console.error("Failed to fetch invitations:", error);
-    }
-  }, [group.id]);
-
-  useEffect(() => {
-    if (isAdmin && showInvitations) {
-      fetchInvitations();
-    }
-  }, [isAdmin, showInvitations, fetchInvitations]);
 
   const handleAddMember = async (e?: React.FormEvent) => {
     e?.preventDefault(); // Prevent default form submission
@@ -99,9 +75,6 @@ export default function MemberManagement({
         const result = await response.json();
         if (result.isInvitation) {
           setSuccess(`Invitation sent to ${newMemberEmail}!`);
-          if (showInvitations) {
-            fetchInvitations(); // Refresh invitations list
-          }
         } else {
           setSuccess(`${newMemberEmail} added to the group!`);
           setTimeout(() => {
@@ -121,52 +94,7 @@ export default function MemberManagement({
     }
   };
 
-  const handleCancelInvitation = async (invitationId: string) => {
-    try {
-      const response = await fetch(`/api/groups/${group.id}/invitations`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ invitationId }),
-      });
 
-      if (response.ok) {
-        setSuccess("Invitation cancelled successfully");
-        fetchInvitations(); // Refresh invitations list
-      } else {
-        const result = await response.json();
-        setError(result.error || "Failed to cancel invitation");
-      }
-    } catch {
-      setError("Failed to cancel invitation");
-    }
-  };
-
-  const copyInvitationLink = async (token: string) => {
-    try {
-      // Call server endpoint to create short code
-      const response = await fetch(`/api/invitations/${token}/shorten`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to create short link');
-      }
-
-      const { shortUrl } = await response.json();
-      await navigator.clipboard.writeText(shortUrl);
-      setCopiedLink(token);
-      setTimeout(() => setCopiedLink(""), 2000);
-    } catch (error) {
-      console.error('Error copying invitation link:', error);
-      setError('Failed to create shareable link');
-    }
-  };
 
   const handleRemoveMember = async (memberId: string, memberName: string) => {
     if (
@@ -210,7 +138,7 @@ export default function MemberManagement({
     // Prevent demoting the last admin
     if (newRole === "MEMBER") {
       const adminCount = group.members.filter(
-        (m) => m.role === "ADMIN" && m.isActive
+        (m) => m.role === "ADMIN" && m.status === "ACTIVE"
       ).length;
       if (adminCount <= 1) {
         setError(
@@ -275,18 +203,15 @@ export default function MemberManagement({
         {isAdmin && (
           <div className="flex space-x-2">
             <button
-              onClick={() => setShowInviteLink(!showInviteLink)}
+              onClick={() => {
+                navigator.clipboard.writeText(inviteLink);
+                setSuccess("Invite link copied to clipboard!");
+                setTimeout(() => setSuccess(""), 3000);
+              }}
               className="border border-gray-300 text-gray-700 px-3 py-1 rounded-md hover:bg-gray-50 transition-colors text-sm"
               disabled={loading}
             >
-              Share Invite Link
-            </button>
-            <button
-              onClick={() => setShowInvitations(!showInvitations)}
-              className="border border-gray-300 text-gray-700 px-3 py-1 rounded-md hover:bg-gray-50 transition-colors text-sm"
-              disabled={loading}
-            >
-              Pending Invitations
+              Copy Invite Link
             </button>
             <button
               onClick={() => setIsAddingMember(true)}
@@ -311,80 +236,7 @@ export default function MemberManagement({
         </div>
       )}
 
-      {/* Invite Link */}
-      {showInviteLink && (
-        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <h3 className="text-sm font-medium text-blue-900 mb-2">
-            Invite Link
-          </h3>
-          <p className="text-xs text-blue-700 mb-3">
-            Share this link with people you want to invite to the group:
-          </p>
-          <div className="flex space-x-2">
-            <input
-              type="text"
-              value={inviteLink}
-              readOnly
-              className="flex-1 border border-blue-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(inviteLink);
-                setSuccess("Invite link copied to clipboard!");
-                setTimeout(() => setSuccess(""), 3000);
-              }}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm"
-            >
-              Copy
-            </button>
-          </div>
-        </div>
-      )}
 
-      {/* Pending Invitations Section */}
-      {showInvitations && (
-        <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <h4 className="font-semibold mb-3 text-yellow-800">
-            Pending Invitations ({invitations.length})
-          </h4>
-          {invitations.length > 0 ? (
-            <div className="space-y-3">
-              {invitations.map((invitation) => (
-                <div
-                  key={invitation.id}
-                  className="flex items-center justify-between p-3 bg-white rounded border"
-                >
-                  <div className="flex-1">
-                    <div className="font-medium">{invitation.email}</div>
-                    <div className="text-sm text-gray-500">
-                      Role: {invitation.role} • Expires:{" "}
-                      {new Date(invitation.expiresAt).toLocaleDateString()}
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => copyInvitationLink(invitation.token)}
-                      className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                    >
-                      {copiedLink === invitation.token
-                        ? "Copied!"
-                        : "Copy Link"}
-                    </button>
-                    <button
-                      onClick={() => handleCancelInvitation(invitation.id)}
-                      className="text-red-600 hover:text-red-700 text-sm font-medium"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-yellow-700">No pending invitations</p>
-          )}
-        </div>
-      )}
 
       {/* Add Member Form */}
       {isAddingMember && (
@@ -428,9 +280,10 @@ export default function MemberManagement({
       <div className="space-y-3">
         {group.members.map((member) => {
           const isCurrentUser = member.userId === currentUser.id;
+          const isInvited = member.status === "INVITED";
           const isLastAdmin =
             member.role === "ADMIN" &&
-            group.members.filter((m) => m.role === "ADMIN" && m.isActive)
+            group.members.filter((m) => m.role === "ADMIN" && m.status === "ACTIVE")
               .length <= 1;
 
           return (
@@ -439,12 +292,18 @@ export default function MemberManagement({
               className={`flex items-center justify-between p-3 rounded-lg transition-colors ${
                 loading
                   ? "bg-gray-100 opacity-50"
+                  : isInvited
+                  ? "bg-yellow-50 border border-yellow-200"
                   : "bg-gray-50 hover:bg-gray-100"
               }`}
             >
               <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-medium text-blue-600">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                  isInvited ? "bg-yellow-100" : "bg-blue-100"
+                }`}>
+                  <span className={`text-sm font-medium ${
+                    isInvited ? "text-yellow-600" : "text-blue-600"
+                  }`}>
                     {(member.user.name || member.user.email)
                       .charAt(0)
                       .toUpperCase()}
@@ -458,14 +317,60 @@ export default function MemberManagement({
                         You
                       </span>
                     )}
+                    {isInvited && (
+                      <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
+                        Pending
+                      </span>
+                    )}
                   </div>
                   <div className="text-sm text-gray-500">
                     {member.user.email}
+                    {isInvited && (
+                      <span className="text-yellow-600"> • Invitation sent</span>
+                    )}
                   </div>
                 </div>
               </div>
 
               <div className="flex items-center space-x-2">
+                {/* Balance Info */}
+                {memberBalances && !isInvited && (
+                  <div className="text-right mr-2">
+                    {(() => {
+                      const balance = memberBalances.get(member.userId) || 0;
+                      const isPositive = balance > 0.01;
+                      const isNegative = balance < -0.01;
+                      
+                      if (isPositive) {
+                        return (
+                          <div className="text-sm text-green-600 font-medium">
+                            +{formatCurrency(balance, group.currency)}
+                          </div>
+                        );
+                      } else if (isNegative) {
+                        return (
+                          <div className="text-sm text-red-600 font-medium">
+                            {formatCurrency(balance, group.currency)}
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div className="text-sm text-gray-500">
+                            {formatCurrency(0, group.currency)}
+                          </div>
+                        );
+                      }
+                    })()}
+                  </div>
+                )}
+                {isInvited && (
+                  <div className="text-right mr-2">
+                    <div className="text-sm text-gray-500">
+                      Not active yet
+                    </div>
+                  </div>
+                )}
+                
                 {/* Role Badge */}
                 <span
                   className={`text-xs px-2 py-1 rounded ${
@@ -481,33 +386,35 @@ export default function MemberManagement({
                 {isAdmin && !isCurrentUser && (
                   <div className="flex space-x-1">
                     {/* Role Toggle */}
-                    <button
-                      onClick={() =>
-                        handleUpdateRole(
-                          member.id,
-                          member.role === "ADMIN" ? "MEMBER" : "ADMIN"
-                        )
-                      }
-                      className={`text-xs px-2 py-1 rounded transition-colors ${
-                        isLastAdmin && member.role === "ADMIN"
-                          ? "text-gray-400 cursor-not-allowed"
-                          : "text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                      }`}
-                      disabled={
-                        loading || (isLastAdmin && member.role === "ADMIN")
-                      }
-                      title={
-                        isLastAdmin && member.role === "ADMIN"
-                          ? "Cannot demote the last admin"
-                          : ""
-                      }
-                    >
-                      {loading
-                        ? "..."
-                        : `Make ${
-                            member.role === "ADMIN" ? "Member" : "Admin"
-                          }`}
-                    </button>
+                    {!isInvited && (
+                      <button
+                        onClick={() =>
+                          handleUpdateRole(
+                            member.id,
+                            member.role === "ADMIN" ? "MEMBER" : "ADMIN"
+                          )
+                        }
+                        className={`text-xs px-2 py-1 rounded transition-colors ${
+                          isLastAdmin && member.role === "ADMIN"
+                            ? "text-gray-400 cursor-not-allowed"
+                            : "text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                        }`}
+                        disabled={
+                          loading || (isLastAdmin && member.role === "ADMIN")
+                        }
+                        title={
+                          isLastAdmin && member.role === "ADMIN"
+                            ? "Cannot demote the last admin"
+                            : ""
+                        }
+                      >
+                        {loading
+                          ? "..."
+                          : `Make ${
+                              member.role === "ADMIN" ? "Member" : "Admin"
+                            }`}
+                      </button>
+                    )}
 
                     {/* Remove Member */}
                     <button
@@ -520,7 +427,7 @@ export default function MemberManagement({
                       className="text-xs text-red-600 hover:text-red-800 px-2 py-1 hover:bg-red-50 rounded transition-colors"
                       disabled={loading}
                     >
-                      {loading ? "..." : "Remove"}
+                      {loading ? "..." : isInvited ? "Cancel Invite" : "Remove"}
                     </button>
                   </div>
                 )}
