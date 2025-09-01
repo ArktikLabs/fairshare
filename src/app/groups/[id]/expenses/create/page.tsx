@@ -81,6 +81,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
   // Simple expense state
   const [payers, setPayers] = useState<ExpensePayer[]>([]);
   const [splits, setSplits] = useState<ExpenseSplit[]>([]);
+  const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
   const [splitMethod, setSplitMethod] = useState<
     "EQUAL" | "PERCENTAGE" | "FIXED_AMOUNT"
   >("EQUAL");
@@ -117,43 +118,52 @@ export default function CreateGroupExpensePage({ params }: Props) {
           invitationsData = await invitationsResponse.json();
         }
 
-        // Combine members and invitations into participants list
-        const participants: Participant[] = [
-          // Registered members
-          ...groupData.members.map(
-            (member: { id: string; user: User; role: string }) => ({
-              id: member.user.id,
-              name: member.user.name || member.user.email || "",
-              email: member.user.email || "",
-              type: "member" as const,
-            })
-          ),
-          // Invited users
-          ...invitationsData.map((invitation: InvitationData) => ({
-            id: invitation.email,
+        // Include both active/invited members AND pending invitations
+        const memberParticipants = groupData.members
+          .filter((member: any) => member.status === "ACTIVE" || member.status === "INVITED")
+          .map((member: { id: string; user: User; role: string; status: string }) => ({
+            id: member.user.id,
+            name: member.user.name || member.user.email || "",
+            email: member.user.email || "",
+            type: "member" as const,
+            status: member.status
+          }));
+
+        // Add invitation-only users (not yet registered members)
+        const invitationParticipants = invitationsData
+          .filter((invitation: any) => 
+            // Only include invitations for emails not already registered as members
+            !memberParticipants.find(m => m.email === invitation.email)
+          )
+          .map((invitation: any) => ({
+            id: invitation.email, // Use email as ID for invitations
             name: invitation.email,
             email: invitation.email,
-            type: "invitation" as const,
-          })),
+            type: "invitation" as const
+          }));
+
+        // Combine both lists
+        const participants: Participant[] = [
+          ...memberParticipants,
+          ...invitationParticipants
         ];
         setAllParticipants(participants);
 
-        // Initialize with current user as payer
+        // Initialize with current user as payer and participant
         if (session?.user?.email) {
           const currentUser = groupData.members.find(
             (m: { id: string; user: User; role: string }) =>
-              m.user.email === session.user.email
+              m.user.email === session.user.email && m.status === "ACTIVE"
           );
           if (currentUser) {
             setPayers([{ userId: currentUser.user.id, amount: 0 }]);
-            setSplits(
-              participants.map((participant) => ({
-                ...(participant.type === "member"
-                  ? { userId: participant.id }
-                  : { email: participant.email }),
-                splitType: "EQUAL" as const,
-              }))
-            );
+            // Initialize with current user selected as participant
+            setSelectedParticipants(new Set([currentUser.user.id]));
+            setSplits([{
+              userId: currentUser.user.id,
+              splitType: "EQUAL" as const,
+              amount: 0
+            }]);
           }
         }
       } catch (error) {
@@ -165,6 +175,29 @@ export default function CreateGroupExpensePage({ params }: Props) {
 
     fetchGroup();
   }, [groupId, session?.user?.email]);
+
+  // Update splits when participants change
+  useEffect(() => {
+    const newSplits = Array.from(selectedParticipants).map(participantId => {
+      const participant = allParticipants.find(p => p.id === participantId);
+      if (!participant) return null;
+      
+      return participant.type === "member"
+        ? {
+            userId: participant.id,
+            splitType: splitMethod,
+            amount: 0,
+            percentage: splitMethod === "PERCENTAGE" ? 100 / selectedParticipants.size : undefined
+          }
+        : {
+            email: participant.email,
+            splitType: splitMethod,
+            amount: 0,
+            percentage: splitMethod === "PERCENTAGE" ? 100 / selectedParticipants.size : undefined
+          };
+    }).filter(Boolean);
+    setSplits(newSplits);
+  }, [selectedParticipants, splitMethod, allParticipants]);
 
   // Auto-calculate equal splits when amount changes
   useEffect(() => {
@@ -365,6 +398,52 @@ export default function CreateGroupExpensePage({ params }: Props) {
               />
             </div>
 
+            {/* Participants Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Who participated in this expense?
+              </label>
+              <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3">
+                {allParticipants.map((participant) => (
+                  <label key={participant.id} className="flex items-center space-x-3 cursor-pointer hover:bg-gray-50 p-2 rounded">
+                    <input
+                      type="checkbox"
+                      checked={selectedParticipants.has(participant.id)}
+                      onChange={(e) => {
+                        const newSelected = new Set(selectedParticipants);
+                        if (e.target.checked) {
+                          newSelected.add(participant.id);
+                        } else {
+                          newSelected.delete(participant.id);
+                        }
+                        setSelectedParticipants(newSelected);
+                      }}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm font-medium text-gray-900">{participant.name}</span>
+                        {participant.type === "invitation" && (
+                          <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
+                            Invited
+                          </span>
+                        )}
+                        {participant.type === "member" && (participant as any).status === "INVITED" && (
+                          <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
+                            Pending
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500">{participant.email}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              {selectedParticipants.size === 0 && (
+                <p className="text-sm text-red-600 mt-2">Please select at least one participant.</p>
+              )}
+            </div>
+
             {/* Who Paid Section */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -397,7 +476,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
                             parseFloat(e.target.value) || 0;
                           setPayers(newPayers);
                         }}
-                        className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+                        className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                         placeholder="0.00"
                       />
                       {payers.length > 1 && (
@@ -416,7 +495,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
                 })}
               </div>
 
-              {payers.length < allParticipants.length && (
+              {payers.length < selectedParticipants.size && (
                 <div className="mt-3">
                   <select
                     onChange={(e) => {
@@ -425,38 +504,34 @@ export default function CreateGroupExpensePage({ params }: Props) {
                         const participant = allParticipants.find(
                           (p) => p.id === selectedId
                         );
-                        if (participant) {
-                          if (participant.type === "member") {
-                            setPayers([
-                              ...payers,
-                              { userId: participant.id, amount: 0 },
-                            ]);
-                          } else {
-                            setPayers([
-                              ...payers,
-                              { email: participant.email, amount: 0 },
-                            ]);
-                          }
+                        if (participant && selectedParticipants.has(participant.id)) {
+                          const newPayer = participant.type === "member"
+                            ? { userId: participant.id, amount: 0 }
+                            : { email: participant.email, amount: 0 };
+                          setPayers([
+                            ...payers,
+                            newPayer,
+                          ]);
                         }
                         e.target.value = "";
                       }
                     }}
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                   >
                     <option value="">Add another payer...</option>
                     {allParticipants
                       .filter(
                         (participant) =>
+                          selectedParticipants.has(participant.id) &&
                           !payers.find(
-                            (p) =>
+                            (p) => 
                               (p.userId && p.userId === participant.id) ||
                               (p.email && p.email === participant.email)
                           )
                       )
                       .map((participant) => (
                         <option key={participant.id} value={participant.id}>
-                          {participant.name}{" "}
-                          {participant.type === "invitation" && "(invited)"}
+                          {participant.name}
                         </option>
                       ))}
                   </select>
@@ -572,7 +647,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
                                 : 0;
                               setSplits(newSplits);
                             }}
-                            className="w-16 border border-gray-300 rounded px-2 py-1 text-sm"
+                            className="w-16 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                             placeholder="0"
                           />
                           <span className="text-sm text-gray-500">%</span>
@@ -591,7 +666,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
                               parseFloat(e.target.value) || 0;
                             setSplits(newSplits);
                           }}
-                          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+                          className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                           placeholder="0.00"
                         />
                       )}
@@ -611,7 +686,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
               </Link>
               <button
                 type="submit"
-                disabled={submitting || !description || !amount}
+                disabled={submitting || !description || !amount || selectedParticipants.size === 0}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {submitting ? "Creating..." : "Create Expense"}
