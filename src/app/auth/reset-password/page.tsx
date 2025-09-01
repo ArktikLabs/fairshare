@@ -2,34 +2,27 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
-export default function ResetPassword() {
+function ResetPasswordContent() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
-  const [token, setToken] = useState<string | null>(null);
-  const router = useRouter();
   const searchParams = useSearchParams();
+  const token = searchParams.get("token");
 
   useEffect(() => {
-    const tokenParam = searchParams.get("token");
-    if (!tokenParam) {
-      setError("Invalid or missing reset token");
-    } else {
-      setToken(tokenParam);
+    if (token && typeof window !== "undefined") {
+      // Keep path, drop query
+      window.history.replaceState(null, "", window.location.pathname);
     }
-  }, [searchParams]);
+  }, [token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!token) {
-      setError("Invalid or missing reset token");
-      return;
-    }
 
     if (!password || !confirmPassword) {
       setError("Please fill in all fields");
@@ -118,7 +111,7 @@ export default function ResetPassword() {
     );
   }
 
-  if (!token || error === "Invalid or missing reset token") {
+  if (!token) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-md w-full">
@@ -192,8 +185,13 @@ export default function ResetPassword() {
         {/* Main Card */}
         <div className="bg-white rounded-2xl shadow-xl p-8 space-y-6">
           {/* Error Message */}
-          {error && error !== "Invalid or missing reset token" && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl font-body">
+          {error && (
+            <div
+              id="form-error"
+              role="alert"
+              aria-live="assertive"
+              className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl font-body"
+            >
               <div className="flex items-center">
                 <span className="mr-2">⚠️</span>
                 {error}
@@ -220,6 +218,8 @@ export default function ResetPassword() {
                 placeholder="Enter new password (min 8 characters)"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? "form-error" : undefined}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-body text-gray-900 placeholder-gray-400"
                 disabled={loading}
               />
@@ -242,6 +242,8 @@ export default function ResetPassword() {
                 placeholder="Confirm new password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? "form-error" : undefined}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-body text-gray-900 placeholder-gray-400"
                 disabled={loading}
               />
@@ -251,6 +253,7 @@ export default function ResetPassword() {
               <button
                 type="submit"
                 disabled={loading || !password || !confirmPassword}
+                aria-busy={loading}
                 className="w-full bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? "Resetting..." : "Reset password"}
@@ -271,4 +274,8 @@ export default function ResetPassword() {
       </div>
     </div>
   );
+}
+
+export default function ResetPassword() {
+  return <ResetPasswordContent />;
 }

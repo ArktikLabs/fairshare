@@ -42,20 +42,53 @@ model Session {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+enum UserStatus {
+  GHOST          // Invited but never signed up
+  PENDING        // Signed up, email not verified
+  ACTIVE         // Verified and active
+  INACTIVE       // Deactivated
+  MERGED         // Merged into another account
+}
+
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-  password      String?   // Optional for OAuth users
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  name            String?
+  email           String    @unique // Required for ghost users
+  emailVerified   DateTime?
+  image           String?
+  password        String?   // Optional for OAuth users, null for ghost users
+  status          UserStatus @default(GHOST) // New users start as GHOST until they sign up
+  displayName     String?   // Override name for ghost users
+  
+  // Ghost user metadata
+  invitedAt       DateTime?  // When first invited anywhere
+  lastInvitedAt   DateTime?  // Most recent invitation
+  signupToken     String?    // For account activation
+  
+  // Activity tracking
+  lastActivityAt  DateTime?
+  isCleanupEligible Boolean  @default(false)
+  
+  // Audit fields
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Auth.js relations
   accounts      Account[]
   sessions      Session[]
   authenticators Authenticator[]
   preferences   UserPreferences?
   notificationSettings UserNotificationSetting[]
+  
+  // RFC: Expense and Group Management relations
+  groupMemberships  GroupMember[]
+  createdGroups     Group[]           @relation("GroupCreator")
+  invitedMembers    GroupMember[]     @relation("MemberInviter")
+  expensePayments   ExpensePayer[]    @relation("ExpensePayers")
+  expenseSplits     ExpenseSplit[]
+  expenseItemSplits ExpenseItemSplit[] @relation("ExpenseItemSplits")
+  settlementsAsPayer Settlement[]     @relation("SettlementPayer")
+  settlementsAsPayee Settlement[]     @relation("SettlementPayee")
 }
 
 model VerificationToken {
@@ -138,4 +171,321 @@ model UserNotificationSetting {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   @@unique([userId, templateKey])
+}
+
+// RFC: Group Management Models
+model Group {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  imageUrl    String?
+
+  // Group settings
+  currency    String   @default("USD")
+  isActive    Boolean  @default(true)
+
+  // Audit fields
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+
+  // Relations
+  creator     User           @relation("GroupCreator", fields: [createdBy], references: [id])
+  members     GroupMember[]
+  expenses    Expense[]
+  settings    GroupSetting[]
+  settlements Settlement[]
+
+  @@index([createdBy])
+  @@index([isActive])
+}
+
+enum MemberStatus {
+  INVITED        // Invited, may be ghost user
+  ACTIVE         // Active in group
+  LEFT           // Left group
+  REMOVED        // Removed by admin
+}
+
+model GroupMember {
+  id          String       @id @default(cuid())
+  groupId     String
+  userId      String       // Always present (ghost users created immediately)
+  role        GroupRole    @default(MEMBER)
+  status      MemberStatus @default(INVITED) // New members start as INVITED
+  
+  // Invitation metadata
+  invitedBy   String?      // Who invited this member
+  inviteToken String?      @unique // For invitation links
+  expiresAt   DateTime?    // Invitation expiry
+  
+  // Member lifecycle
+  joinedAt    DateTime?    // When they accepted invitation
+  leftAt      DateTime?    // When they left or were removed
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  group       Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inviter     User?        @relation("MemberInviter", fields: [invitedBy], references: [id])
+
+  @@unique([groupId, userId])
+  @@index([userId])
+  @@index([groupId, status])
+  @@index([inviteToken])
+}
+
+enum GroupRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model GroupSetting {
+  id      String @id @default(cuid())
+  groupId String
+  key     String
+  value   String
+
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, key])
+}
+
+// GroupInvitation model removed - functionality moved to GroupMember with ghost users
+
+// RFC: Expense Management Models
+model Expense {
+  id          String   @id @default(cuid())
+
+  // Basic expense info
+  amount      Decimal  @db.Decimal(10, 2)
+  description String
+  date        DateTime @default(now())
+  category    ExpenseCategory?
+
+  // Group association (optional for personal expenses)
+  groupId     String?
+
+  // Split configuration (for simple expenses)
+  splitMethod SplitMethod @default(EQUAL)
+
+  // Receipt and notes
+  notes       String?
+  receiptUrls String[] // Array of receipt image URLs
+
+  // Status tracking
+  isSettled   Boolean  @default(false)
+  isDeleted   Boolean  @default(false)
+
+  // Audit fields
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  group       Group?         @relation(fields: [groupId], references: [id])
+  payers      ExpensePayer[] // Multiple payers support
+  splits      ExpenseSplit[] // For simple expenses
+  items       ExpenseItem[]  // For itemized expenses
+  settlements Settlement[]
+
+  @@index([groupId])
+  @@index([date])
+  @@index([groupId, date])
+  @@index([isDeleted])
+  @@index([isSettled])
+}
+
+model ExpensePayer {
+  id          String  @id @default(cuid())
+  expenseId   String
+  userId      String
+
+  // Amount this user paid towards the expense
+  amountPaid  Decimal @db.Decimal(10, 2)
+
+  // Payment method and reference
+  paymentMethod String? // e.g., "Credit Card", "Cash", "Venmo"
+  paymentRef    String? // e.g., transaction ID, check number
+
+  // Audit fields
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  expense     Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user        User    @relation("ExpensePayers", fields: [userId], references: [id])
+
+  @@unique([expenseId, userId])
+  @@index([userId])
+  @@index([expenseId])
+}
+
+enum SplitMethod {
+  EQUAL       // Split equally among participants
+  EXACT       // Exact amounts specified
+  PERCENTAGE  // Percentage-based split
+  SHARES      // Share-based split (e.g., 2:3:1 ratio)
+}
+
+enum ExpenseCategory {
+  FOOD_DRINK
+  TRANSPORTATION
+  ACCOMMODATION
+  ENTERTAINMENT
+  SHOPPING
+  UTILITIES
+  HEALTHCARE
+  EDUCATION
+  TRAVEL
+  OTHER
+}
+
+model ExpenseSplit {
+  id          String  @id @default(cuid())
+  expenseId   String
+  userId      String
+
+  // Split details
+  amount      Decimal @db.Decimal(10, 2)
+  percentage  Decimal? @db.Decimal(5, 2) // For percentage splits
+  shares      Int?    // For share-based splits
+
+  // Settlement status
+  isSettled   Boolean @default(false)
+  settledAt   DateTime?
+
+  // Audit fields
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  expense     Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user        User    @relation(fields: [userId], references: [id])
+  settlements Settlement[]
+
+  @@unique([expenseId, userId])
+  @@index([userId])
+  @@index([isSettled])
+}
+
+model ExpenseItem {
+  id          String  @id @default(cuid())
+  expenseId   String
+
+  // Item details
+  name        String  // "Alice's burger", "Shared appetizer"
+  description String? // Additional details about the item
+  amount      Decimal @db.Decimal(10, 2)
+  quantity    Int     @default(1)
+  unitPrice   Decimal? @db.Decimal(10, 2)
+
+  // Item categorization
+  category    String? // "Food", "Tax", "Tip", "Service"
+  isShared    Boolean @default(false) // Whether this item is shared among multiple people
+
+  // Split configuration for this item
+  splitMethod SplitMethod @default(EQUAL)
+
+  // Audit fields
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  expense     Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  splits      ExpenseItemSplit[]
+
+  @@index([expenseId])
+  @@index([isShared])
+}
+
+model ExpenseItemSplit {
+  id          String  @id @default(cuid())
+  itemId      String
+  userId      String
+
+  // Split details for this specific item
+  amount      Decimal @db.Decimal(10, 2)
+  percentage  Decimal? @db.Decimal(5, 2) // For percentage splits
+  shares      Int?    // For share-based splits
+
+  // Settlement status for this item split
+  isSettled   Boolean @default(false)
+  settledAt   DateTime?
+
+  // Audit fields
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  item        ExpenseItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user        User        @relation("ExpenseItemSplits", fields: [userId], references: [id])
+
+  @@unique([itemId, userId])
+  @@index([userId])
+  @@index([isSettled])
+}
+
+// RFC: Settlement System
+model Settlement {
+  id          String   @id @default(cuid())
+
+  // Settlement details
+  amount      Decimal  @db.Decimal(10, 2)
+  description String?
+
+  // Parties involved
+  payerId     String   // Who paid
+  payeeId     String   // Who received payment
+
+  // Related expense (optional - can be general settlement)
+  expenseId   String?
+  splitId     String?
+
+  // Group context
+  groupId     String?
+
+  // Settlement method
+  method      SettlementMethod @default(CASH)
+
+  // External reference (e.g., Venmo transaction ID)
+  externalRef String?
+
+  // Status
+  status      SettlementStatus @default(PENDING)
+  confirmedAt DateTime?
+
+  // Audit fields
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  payer       User     @relation("SettlementPayer", fields: [payerId], references: [id])
+  payee       User     @relation("SettlementPayee", fields: [payeeId], references: [id])
+  expense     Expense? @relation(fields: [expenseId], references: [id])
+  split       ExpenseSplit? @relation(fields: [splitId], references: [id])
+  group       Group?   @relation(fields: [groupId], references: [id])
+
+  @@index([payerId])
+  @@index([payeeId])
+  @@index([groupId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum SettlementMethod {
+  CASH
+  VENMO
+  PAYPAL
+  BANK_TRANSFER
+  CREDIT_CARD
+  OTHER
+}
+
+enum SettlementStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  CANCELLED
 }

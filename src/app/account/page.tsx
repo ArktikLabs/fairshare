@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import PasskeyManagement from "@/components/PasskeyManagement";
 import Link from "next/link";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
-import { CURRENCIES, TIMEZONES, LANGUAGES, getCurrencyByCode, getTimezoneByZone, getLanguageByCode, groupTimezonesByRegion } from "@/lib/localization-data";
+import { CURRENCIES, LANGUAGES, getCurrencyByCode, getTimezoneByZone, getLanguageByCode, groupTimezonesByRegion } from "@/lib/localization-data";
 import { formatCurrency, getCurrentTime } from "@/lib/localization-utils";
 
 export default function AccountPage() {
@@ -48,7 +48,13 @@ export default function AccountPage() {
     if (session?.user?.name) setName(session.user.name);
   }, [session, status, router]);
 
-  const handleUpdatePreferences = async (updatedPreferences: { [key: string]: any }) => {
+  const handleUpdatePreferences = async (updatedPreferences: { 
+    theme?: 'light' | 'dark' | 'system';
+    currency?: string;
+    timezone?: string;
+    language?: string;
+    [key: string]: string | undefined;
+  }) => {
     if (updatedPreferences.theme) {
       const success = await updateTheme(updatedPreferences.theme as 'light' | 'dark' | 'system');
       if (success) {
@@ -81,7 +87,7 @@ export default function AccountPage() {
       } else {
         setMessage("Failed to update profile. Please try again.");
       }
-    } catch (error) {
+    } catch {
       setMessage("An error occurred. Please try again.");
     } finally {
       setLoading(false);
@@ -96,14 +102,14 @@ export default function AccountPage() {
       });
 
       if (response.ok) {
-        const data = await response.json();
+        await response.json();
         setMessage(
           "Data export initiated! You'll receive an email when it's ready."
         );
       } else {
         setMessage("Failed to initiate data export. Please try again.");
       }
-    } catch (error) {
+    } catch {
       setMessage("An error occurred. Please try again.");
     } finally {
       setLoading(false);
@@ -136,7 +142,7 @@ export default function AccountPage() {
       } else {
         setMessage(data.error || "Failed to delete account.");
       }
-    } catch (error) {
+    } catch {
       setMessage("An error occurred. Please try again.");
     } finally {
       setLoading(false);
@@ -186,7 +192,7 @@ export default function AccountPage() {
       } else {
         setMessage(data.error || data.message || "Failed to change password");
       }
-    } catch (error) {
+    } catch {
       setMessage("An error occurred while changing password");
     } finally {
       setPasswordLoading(false);
@@ -618,7 +624,13 @@ export default function AccountPage() {
                          category === 'news' ? 'News & Updates' : category}
                       </h4>
                       <div className="space-y-3">
-                        {notifications.map((notification: any) => (
+                        {notifications.map((notification: {
+                          key: string;
+                          name: string;
+                          description: string;
+                          emailEnabled?: boolean;
+                          pushEnabled?: boolean;
+                        }) => (
                           <div
                             key={notification.key}
                             className="p-3 bg-white rounded-lg border border-green-200 shadow-sm"

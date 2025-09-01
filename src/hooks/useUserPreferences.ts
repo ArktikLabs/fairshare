@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 
 interface NotificationSetting {
@@ -22,6 +22,11 @@ interface NotificationTemplate {
   required: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+interface NotificationWithSettings extends NotificationTemplate {
+  emailEnabled: boolean;
+  pushEnabled: boolean;
 }
 
 interface UserPreferences {
@@ -242,30 +247,28 @@ export function useUserPreferences() {
     };
   };
 
-  const getNotificationsByCategory = () => {
+  const getNotificationsByCategory = useCallback(() => {
     if (!preferences?.notificationTemplates) return {};
-    
     return preferences.notificationTemplates.reduce((acc, template) => {
       if (!acc[template.category]) {
         acc[template.category] = [];
       }
-      
       const setting = getNotificationSetting(template.key);
       acc[template.category].push({
         ...template,
         emailEnabled: setting.email,
         pushEnabled: setting.push,
       });
-      
       return acc;
-    }, {} as Record<string, any[]>);
-  };
+    }, {} as Record<string, NotificationWithSettings[]>);
+  }, [preferences?.notificationTemplates, preferences?.notificationSettings]);
 
   // Theme-specific utilities
   const isDarkMode = () => {
     if (!preferences) return false;
     if (preferences.theme === 'system') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (typeof window === 'undefined') return false;
+      return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
     }
     return preferences.theme === 'dark';
   };
