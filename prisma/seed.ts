@@ -1,5 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 
+const SYSTEM_USER_EMAIL = "system@fair.share";
+const GLOBAL_SCOPE = "global";
+
 const prisma = new PrismaClient();
 
 async function main() {
@@ -105,7 +108,108 @@ async function main() {
     console.log(`✅ Created/updated template: ${template.name}`);
   }
 
+  console.log('🌱 Seeding global expense categories...');
+
+  const systemUser = await prisma.user.upsert({
+    where: { email: SYSTEM_USER_EMAIL },
+    update: {},
+    create: {
+      email: SYSTEM_USER_EMAIL,
+      name: 'FairShare System',
+      image: null,
+      password: null,
+    },
+  });
+
+  const parentDefinitions = [
+    { name: "Entertainment", icon: "🎬", color: "#a855f7", description: "Movies, concerts, hobbies" },
+    { name: "Food and Drink", icon: "🍽️", color: "#f97316", description: "Meals, groceries, coffee" },
+    { name: "Home", icon: "🏠", color: "#0ea5e9", description: "Rent, mortgage, furnishings" },
+    { name: "Life", icon: "❤️", color: "#ec4899", description: "Health, family, personal care" },
+    { name: "Transportation", icon: "🚗", color: "#22c55e", description: "Transit, fuel, rideshare" },
+    { name: "Utilities", icon: "💡", color: "#6366f1", description: "Household services and bills" },
+    { name: "Uncategorized", icon: "🗂️", color: "#475569", description: "Miscellaneous expenses" },
+  ];
+
+  const parentMap = new Map<string, string>();
+  for (const parent of parentDefinitions) {
+    const record = await upsertParentCategory(
+      systemUser.id,
+      { parentId: null, name: parent.name, icon: parent.icon, color: parent.color, description: parent.description }
+    );
+
+    parentMap.set(parent.name, record.id);
+  }
+
+  const childDefinitions = [
+    { parent: "Entertainment", name: "Movies & Shows", icon: "🎟️", color: "#c084fc" },
+    { parent: "Entertainment", name: "Streaming Services", icon: "📺", color: "#8b5cf6" },
+    { parent: "Entertainment", name: "Games & Apps", icon: "🎮", color: "#6366f1" },
+    { parent: "Food and Drink", name: "Groceries", icon: "🛒", color: "#f59e0b" },
+    { parent: "Food and Drink", name: "Restaurants & Takeout", icon: "🍔", color: "#fb923c" },
+    { parent: "Food and Drink", name: "Coffee & Snacks", icon: "☕", color: "#facc15" },
+    { parent: "Home", name: "Rent & Mortgage", icon: "🏡", color: "#38bdf8" },
+    { parent: "Home", name: "Maintenance & Repairs", icon: "🛠️", color: "#0ea5e9" },
+    { parent: "Home", name: "Furniture & Decor", icon: "🪑", color: "#0284c7" },
+    { parent: "Life", name: "Health & Wellness", icon: "💊", color: "#f472b6" },
+    { parent: "Life", name: "Education & Learning", icon: "🎓", color: "#14b8a6" },
+    { parent: "Life", name: "Gifts & Donations", icon: "🎁", color: "#ec4899" },
+    { parent: "Transportation", name: "Fuel", icon: "⛽", color: "#4ade80" },
+    { parent: "Transportation", name: "Public Transit", icon: "🚌", color: "#22c55e" },
+    { parent: "Transportation", name: "Rideshare & Taxi", icon: "🚕", color: "#16a34a" },
+    { parent: "Utilities", name: "Electricity", icon: "⚡", color: "#818cf8" },
+    { parent: "Utilities", name: "Water & Sewer", icon: "🚰", color: "#6366f1" },
+    { parent: "Utilities", name: "Internet & TV", icon: "🌐", color: "#4f46e5" },
+    { parent: "Utilities", name: "Mobile Phone", icon: "📱", color: "#4338ca" },
+  ];
+
+  await prisma.$transaction(
+    childDefinitions.map(({ parent, ...childData }) => {
+      const parentId = parentMap.get(parent);
+      if (!parentId) return prisma.$executeRaw`SELECT 1`;
+
+      return prisma.expenseCategory.upsert({
+        where: {
+          ownerId_parentId_name: {
+            ownerId: systemUser.id,
+            parentId,
+            name: childData.name,
+          },
+        },
+        update: {
+          ...childData,
+          scope: GLOBAL_SCOPE,
+          ownerId: systemUser.id,
+          parentId,
+        },
+        create: {
+          ...childData,
+          scope: GLOBAL_SCOPE,
+          ownerId: systemUser.id,
+          parentId,
+        },
+      });
+    }),
+  );
+
   console.log('🎉 Seeding completed successfully!');
+}
+
+async function upsertParentCategory(systemUserId: any, data: { parentId: string | null; name: string; icon?: string; color?: string; description?: string }) {
+  const existing = await prisma.expenseCategory.findFirst({
+    where: { ownerId: systemUserId, parentId: data.parentId, name: data.name },
+  });
+
+  if (existing) {
+    return prisma.expenseCategory.update({
+      where: { id: existing.id },
+      data: { ...data, scope: GLOBAL_SCOPE, ownerId: systemUserId },
+    });
+  }
+
+  return prisma.expenseCategory.create({
+    data: { ...data, scope: GLOBAL_SCOPE, ownerId: systemUserId },
+  });
 }
 
 main()
