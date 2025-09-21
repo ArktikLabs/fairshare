@@ -11,10 +11,10 @@ A comprehensive todo list for implementing remaining features and improvements i
   - ✅ Payer and participants
   - ✅ Receipt attachment support
   - ✅ Split methods (equal, exact amounts, percentages)
-- [ ] **Add Expense Form** - Create expense entry interface
-  - [ ] Multi-step form with validation
-  - [ ] Participant selection with search
-  - [ ] Category selection and custom categories
+- ✅ **Add Expense Form** - Create expense entry interface
+  - ✅ Multi-step form with validation
+  - ✅ Participant selection with search
+  - ✅ Category selection and custom categories
   - [ ] Receipt upload with preview
 - [ ] **Expense List View** - Display user's expenses
   - [ ] Filterable by date, category, group

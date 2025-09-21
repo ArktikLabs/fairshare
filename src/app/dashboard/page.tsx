@@ -2,18 +2,141 @@
 
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SessionDebugger } from "@/components/SessionDebugger";
+import { formatCurrency as formatCurrencyValue } from "@/lib/localization-utils";
 import Link from "next/link";
+
+type RecentExpenseParticipant = {
+  id: string;
+  userId: string;
+  name: string | null;
+  email: string | null;
+  shareAmount: string | null;
+};
+
+type RecentExpense = {
+  id: string;
+  description: string;
+  amount: string;
+  currency: string;
+  occurredAt: string;
+  status: string;
+  category: { id: string; name: string } | null;
+  paidBy: { id: string; name: string | null; email: string | null } | null;
+  participants: RecentExpenseParticipant[];
+};
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [recentExpenses, setRecentExpenses] = useState<RecentExpense[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [activityError, setActivityError] = useState<string | null>(null);
+
+  const userLocale =
+    typeof navigator !== "undefined" && navigator.language
+      ? navigator.language
+      : "en-US";
+
+  const formatExpenseAmount = (amount: string, currency: string) => {
+    const value = Number.parseFloat(amount);
+    if (Number.isNaN(value)) {
+      return `${currency} ${amount}`;
+    }
+
+    return formatCurrencyValue(value, currency, userLocale);
+  };
+
+  const formatExpenseDate = (timestamp: string) => {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+
+    return new Intl.DateTimeFormat(userLocale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(date);
+  };
+
+  const formatExpenseStatus = (status: string) => {
+    if (!status) return "";
+    return status.charAt(0).toUpperCase() + status.slice(1);
+  };
+
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const refreshRecentExpenses = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!session?.user?.id) {
+        if (!signal?.aborted && isMountedRef.current) {
+          setRecentExpenses([]);
+          setActivityLoading(false);
+        }
+        return;
+      }
+
+      if (!signal?.aborted && isMountedRef.current) {
+        setActivityLoading(true);
+        setActivityError(null);
+      }
+
+      try {
+        const response = await fetch("/api/expenses?limit=5", { signal });
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          throw new Error(data?.error ?? "Failed to load recent expenses");
+        }
+
+        const expenses = Array.isArray(data?.expenses) ? data.expenses : [];
+        if (!signal?.aborted && isMountedRef.current) {
+          setRecentExpenses(expenses);
+        }
+      } catch (error) {
+        if (signal?.aborted) {
+          return;
+        }
+
+        if (isMountedRef.current) {
+          setRecentExpenses([]);
+          setActivityError(
+            error instanceof Error
+              ? error.message
+              : "Failed to load recent expenses"
+          );
+        }
+      } finally {
+        if (!signal?.aborted && isMountedRef.current) {
+          setActivityLoading(false);
+        }
+      }
+    },
+    [session?.user?.id]
+  );
 
   useEffect(() => {
     if (status === "loading") return; // Still loading
     if (!session) router.push("/auth/signin"); // Not signed in
   }, [session, status, router]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void refreshRecentExpenses(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, [refreshRecentExpenses]);
 
   if (status === "loading") {
     return (
@@ -209,20 +332,92 @@ export default function Dashboard() {
                 </h2>
               </div>
               <div className="p-6">
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <span className="text-2xl">🎉</span>
+                {activityLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="w-10 h-10 border-3 border-green-600 border-t-transparent rounded-full animate-spin" />
                   </div>
-                  <h3 className="text-lg font-display font-medium text-gray-900 mb-2">
-                    You're all set!
-                  </h3>
-                  <p className="text-gray-600 font-body mb-4">
-                    Start by creating your first expense or group.
-                  </p>
-                  <button className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors">
-                    Add Expense
-                  </button>
-                </div>
+                ) : activityError ? (
+                  <div className="text-center py-12 space-y-4">
+                    <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+                      <span className="text-2xl">⚠️</span>
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-lg font-display font-medium text-gray-900">
+                        Couldn't load activity
+                      </h3>
+                      <p className="text-gray-600 font-body text-sm">
+                        {activityError}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => refreshRecentExpenses()}
+                      className="inline-flex items-center justify-center bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                ) : recentExpenses.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <span className="text-2xl">🎉</span>
+                    </div>
+                    <h3 className="text-lg font-display font-medium text-gray-900 mb-2">
+                      You're all set!
+                    </h3>
+                    <p className="text-gray-600 font-body mb-4">
+                      Start by creating your first expense or group.
+                    </p>
+                    <Link
+                      href="/expenses/new"
+                      className="inline-flex items-center justify-center bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Add Expense
+                    </Link>
+                  </div>
+                ) : (
+                  <ul className="space-y-6">
+                    {recentExpenses.map((expense) => (
+                      <li
+                        key={expense.id}
+                        className="flex items-start justify-between gap-6 border-b border-gray-100 pb-4 last:border-b-0 last:pb-0"
+                      >
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-gray-900">
+                            {expense.description}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {formatExpenseDate(expense.occurredAt)}
+                            {expense.category
+                              ? ` • ${expense.category.name}`
+                              : ""}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Paid by{" "}
+                            {expense.paidBy?.name ??
+                              expense.paidBy?.email ??
+                              "Unknown"}
+                          </p>
+                        </div>
+                        <div className="text-right space-y-1">
+                          <p className="text-sm font-semibold text-gray-900">
+                            {formatExpenseAmount(
+                              expense.amount,
+                              expense.currency
+                            )}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {formatExpenseStatus(expense.status)}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {expense.participants.length} participant
+                            {expense.participants.length === 1 ? "" : "s"}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
           </div>
@@ -234,7 +429,10 @@ export default function Dashboard() {
               Quick Actions
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <button className="p-4 border-2 border-dashed border-gray-200 rounded-xl hover:border-green-300 hover:bg-green-50 transition-all group">
+              <Link
+                href="/expenses/new"
+                className="p-4 border-2 border-dashed border-gray-200 rounded-xl hover:border-green-300 hover:bg-green-50 transition-all group"
+              >
                 <div className="text-center">
                   <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mx-auto mb-3 group-hover:bg-green-200">
                     <span className="text-2xl">➕</span>
@@ -246,7 +444,7 @@ export default function Dashboard() {
                     Record a new shared expense
                   </p>
                 </div>
-              </button>
+              </Link>
 
               <button className="p-4 border-2 border-dashed border-gray-200 rounded-xl hover:border-blue-300 hover:bg-blue-50 transition-all group">
                 <div className="text-center">
