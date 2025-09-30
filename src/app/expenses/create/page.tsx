@@ -30,7 +30,7 @@ interface ExpenseSplit {
   userId: string;
   amount?: number;
   percentage?: number;
-  splitType: 'EQUAL' | 'PERCENTAGE' | 'FIXED_AMOUNT';
+  splitType: "EQUAL" | "PERCENTAGE" | "EXACT" | "SHARE" | "ADJUST";
 }
 
 interface ExpenseItem {
@@ -40,27 +40,27 @@ interface ExpenseItem {
     userId: string;
     amount?: number;
     percentage?: number;
-    splitType: 'EQUAL' | 'PERCENTAGE' | 'FIXED_AMOUNT';
+    splitType: "EQUAL" | "PERCENTAGE" | "EXACT" | "SHARE";
   }>;
 }
 
 const EXPENSE_CATEGORIES = [
-  { value: 'FOOD_DRINK', label: '🍽️ Food & Drink' },
-  { value: 'TRANSPORTATION', label: '🚗 Transportation' },
-  { value: 'ACCOMMODATION', label: '🏨 Accommodation' },
-  { value: 'ENTERTAINMENT', label: '🎬 Entertainment' },
-  { value: 'SHOPPING', label: '🛍️ Shopping' },
-  { value: 'UTILITIES', label: '⚡ Utilities' },
-  { value: 'HEALTHCARE', label: '🏥 Healthcare' },
-  { value: 'EDUCATION', label: '📚 Education' },
-  { value: 'TRAVEL', label: '✈️ Travel' },
-  { value: 'OTHER', label: '📦 Other' },
+  { value: "FOOD_DRINK", label: "🍽️ Food & Drink" },
+  { value: "TRANSPORTATION", label: "🚗 Transportation" },
+  { value: "ACCOMMODATION", label: "🏨 Accommodation" },
+  { value: "ENTERTAINMENT", label: "🎬 Entertainment" },
+  { value: "SHOPPING", label: "🛍️ Shopping" },
+  { value: "UTILITIES", label: "⚡ Utilities" },
+  { value: "HEALTHCARE", label: "🏥 Healthcare" },
+  { value: "EDUCATION", label: "📚 Education" },
+  { value: "TRAVEL", label: "✈️ Travel" },
+  { value: "OTHER", label: "📦 Other" },
 ];
 
 export default function CreateExpense() {
   const router = useRouter();
   const { data: session } = useSession();
-  
+
   // Form state
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -68,12 +68,12 @@ export default function CreateExpense() {
   const [notes, setNotes] = useState("");
   const [groupId, setGroupId] = useState("");
   const [isItemized, setIsItemized] = useState(false);
-  
+
   // Advanced options
   const [payers, setPayers] = useState<ExpensePayer[]>([]);
   const [splits, setSplits] = useState<ExpenseSplit[]>([]);
   const [items, setItems] = useState<ExpenseItem[]>([]);
-  
+
   // UI state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -102,14 +102,14 @@ export default function CreateExpense() {
 
   // Update selected group when groupId changes
   useEffect(() => {
-    const group = groups.find(g => g.id === groupId);
+    const group = groups.find((g) => g.id === groupId);
     setSelectedGroup(group || null);
-    
+
     // Initialize splits with equal distribution for all members
     if (group && group.members.length > 0) {
-      const equalSplits = group.members.map(member => ({
+      const equalSplits = group.members.map((member) => ({
         userId: member.user.id,
-        splitType: 'EQUAL' as const,
+        splitType: "EQUAL" as const,
       }));
       setSplits(equalSplits);
 
@@ -121,27 +121,39 @@ export default function CreateExpense() {
   }, [groupId, groups, session?.user?.id]);
 
   const addItem = () => {
-    setItems([...items, {
-      name: "",
-      amount: 0,
-      splits: selectedGroup?.members.map(member => ({
-        userId: member.user.id,
-        splitType: 'EQUAL' as const,
-      })) || []
-    }]);
+    setItems([
+      ...items,
+      {
+        name: "",
+        amount: 0,
+        splits:
+          selectedGroup?.members.map((member) => ({
+            userId: member.user.id,
+            splitType: "EQUAL" as const,
+          })) || [],
+      },
+    ]);
   };
 
   const removeItem = (index: number) => {
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const updateItem = (index: number, field: keyof ExpenseItem, value: string | number) => {
+  const updateItem = (
+    index: number,
+    field: keyof ExpenseItem,
+    value: string | number
+  ) => {
     const newItems = [...items];
     newItems[index] = { ...newItems[index], [field]: value };
     setItems(newItems);
   };
 
-  const updatePayer = (index: number, field: keyof ExpensePayer, value: string | number) => {
+  const updatePayer = (
+    index: number,
+    field: keyof ExpensePayer,
+    value: string | number
+  ) => {
     const newPayers = [...payers];
     newPayers[index] = { ...newPayers[index], [field]: value };
     setPayers(newPayers);
@@ -155,7 +167,11 @@ export default function CreateExpense() {
     setPayers(payers.filter((_, i) => i !== index));
   };
 
-  const updateSplit = (index: number, field: keyof ExpenseSplit, value: string | number) => {
+  const updateSplit = (
+    index: number,
+    field: keyof ExpenseSplit,
+    value: string | number
+  ) => {
     const newSplits = [...splits];
     newSplits[index] = { ...newSplits[index], [field]: value };
     setSplits(newSplits);
@@ -171,7 +187,7 @@ export default function CreateExpense() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!session?.user?.id) {
       setError("You must be logged in to create an expense");
       return;
@@ -182,8 +198,10 @@ export default function CreateExpense() {
       return;
     }
 
-    const expenseAmount = isItemized ? calculateTotalItemsAmount() : parseFloat(amount);
-    
+    const expenseAmount = isItemized
+      ? calculateTotalItemsAmount()
+      : parseFloat(amount);
+
     if (!expenseAmount || expenseAmount <= 0) {
       setError("Amount must be greater than 0");
       return;
@@ -192,7 +210,11 @@ export default function CreateExpense() {
     if (showAdvanced) {
       const totalPaid = calculateTotalPaidAmount();
       if (Math.abs(totalPaid - expenseAmount) > 0.01) {
-        setError(`Total paid amount (${totalPaid.toFixed(2)}) must equal expense amount (${expenseAmount.toFixed(2)})`);
+        setError(
+          `Total paid amount (${totalPaid.toFixed(
+            2
+          )}) must equal expense amount (${expenseAmount.toFixed(2)})`
+        );
         return;
       }
     }
@@ -209,8 +231,13 @@ export default function CreateExpense() {
         groupId: groupId || undefined,
         date: new Date().toISOString(),
         isItemized,
-        payers: showAdvanced ? payers : [{ userId: session.user.id, amount: expenseAmount }],
-        splits: splits.length > 0 ? splits : [{ userId: session.user.id, splitType: 'EQUAL' }],
+        payers: showAdvanced
+          ? payers
+          : [{ userId: session.user.id, amount: expenseAmount }],
+        splits:
+          splits.length > 0
+            ? splits
+            : [{ userId: session.user.id, splitType: "EQUAL" }],
         items: isItemized ? items : undefined,
       };
 
@@ -272,9 +299,12 @@ export default function CreateExpense() {
               <h2 className="text-lg font-semibold text-gray-900 font-display">
                 Basic Information
               </h2>
-              
+
               <div>
-                <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2 font-body">
+                <label
+                  htmlFor="description"
+                  className="block text-sm font-medium text-gray-700 mb-2 font-body"
+                >
                   Description *
                 </label>
                 <input
@@ -292,7 +322,10 @@ export default function CreateExpense() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {!isItemized && (
                   <div>
-                    <label htmlFor="amount" className="block text-sm font-medium text-gray-700 mb-2 font-body">
+                    <label
+                      htmlFor="amount"
+                      className="block text-sm font-medium text-gray-700 mb-2 font-body"
+                    >
                       Amount *
                     </label>
                     <input
@@ -311,7 +344,10 @@ export default function CreateExpense() {
                 )}
 
                 <div>
-                  <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-2 font-body">
+                  <label
+                    htmlFor="category"
+                    className="block text-sm font-medium text-gray-700 mb-2 font-body"
+                  >
                     Category
                   </label>
                   <select
@@ -331,7 +367,10 @@ export default function CreateExpense() {
               </div>
 
               <div>
-                <label htmlFor="group" className="block text-sm font-medium text-gray-700 mb-2 font-body">
+                <label
+                  htmlFor="group"
+                  className="block text-sm font-medium text-gray-700 mb-2 font-body"
+                >
                   Group (optional)
                 </label>
                 <select
@@ -351,7 +390,10 @@ export default function CreateExpense() {
               </div>
 
               <div>
-                <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-2 font-body">
+                <label
+                  htmlFor="notes"
+                  className="block text-sm font-medium text-gray-700 mb-2 font-body"
+                >
                   Notes (optional)
                 </label>
                 <textarea
@@ -377,7 +419,10 @@ export default function CreateExpense() {
                   className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
                   disabled={loading}
                 />
-                <label htmlFor="itemized" className="text-sm font-medium text-gray-700 font-body">
+                <label
+                  htmlFor="itemized"
+                  className="text-sm font-medium text-gray-700 font-body"
+                >
                   Itemized expense (split individual items differently)
                 </label>
               </div>
@@ -401,9 +446,14 @@ export default function CreateExpense() {
                 </div>
 
                 {items.map((item, index) => (
-                  <div key={index} className="bg-gray-50 p-4 rounded-lg space-y-3">
+                  <div
+                    key={index}
+                    className="bg-gray-50 p-4 rounded-lg space-y-3"
+                  >
                     <div className="flex items-center justify-between">
-                      <h4 className="font-medium text-gray-900 font-body">Item {index + 1}</h4>
+                      <h4 className="font-medium text-gray-900 font-body">
+                        Item {index + 1}
+                      </h4>
                       <button
                         type="button"
                         onClick={() => removeItem(index)}
@@ -413,13 +463,15 @@ export default function CreateExpense() {
                         Remove
                       </button>
                     </div>
-                    
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <input
                         type="text"
                         placeholder="Item name"
                         value={item.name}
-                        onChange={(e) => updateItem(index, 'name', e.target.value)}
+                        onChange={(e) =>
+                          updateItem(index, "name", e.target.value)
+                        }
                         className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-body"
                         disabled={loading}
                       />
@@ -428,8 +480,14 @@ export default function CreateExpense() {
                         step="0.01"
                         min="0"
                         placeholder="Amount"
-                        value={item.amount || ''}
-                        onChange={(e) => updateItem(index, 'amount', parseFloat(e.target.value) || 0)}
+                        value={item.amount || ""}
+                        onChange={(e) =>
+                          updateItem(
+                            index,
+                            "amount",
+                            parseFloat(e.target.value) || 0
+                          )
+                        }
                         className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-body"
                         disabled={loading}
                       />
@@ -440,7 +498,10 @@ export default function CreateExpense() {
                 {items.length > 0 && (
                   <div className="bg-blue-50 p-3 rounded-lg">
                     <p className="text-sm text-blue-800 font-body">
-                      Total items amount: <span className="font-semibold">${calculateTotalItemsAmount().toFixed(2)}</span>
+                      Total items amount:{" "}
+                      <span className="font-semibold">
+                        ${calculateTotalItemsAmount().toFixed(2)}
+                      </span>
                     </p>
                   </div>
                 )}
@@ -456,7 +517,7 @@ export default function CreateExpense() {
                   className="flex items-center space-x-2 text-sm font-medium text-gray-700 hover:text-gray-900 font-body"
                   disabled={loading}
                 >
-                  <span>{showAdvanced ? '▼' : '▶'}</span>
+                  <span>{showAdvanced ? "▼" : "▶"}</span>
                   <span>Advanced: Custom payers and splits</span>
                 </button>
 
@@ -479,16 +540,24 @@ export default function CreateExpense() {
                       </div>
 
                       {payers.map((payer, index) => (
-                        <div key={index} className="flex items-center space-x-3 mb-2">
+                        <div
+                          key={index}
+                          className="flex items-center space-x-3 mb-2"
+                        >
                           <select
                             value={payer.userId}
-                            onChange={(e) => updatePayer(index, 'userId', e.target.value)}
+                            onChange={(e) =>
+                              updatePayer(index, "userId", e.target.value)
+                            }
                             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-body"
                             disabled={loading}
                           >
                             <option value="">Select member</option>
                             {selectedGroup.members.map((member) => (
-                              <option key={member.user.id} value={member.user.id}>
+                              <option
+                                key={member.user.id}
+                                value={member.user.id}
+                              >
                                 {member.user.name || member.user.email}
                               </option>
                             ))}
@@ -498,8 +567,14 @@ export default function CreateExpense() {
                             step="0.01"
                             min="0"
                             placeholder="Amount paid"
-                            value={payer.amount || ''}
-                            onChange={(e) => updatePayer(index, 'amount', parseFloat(e.target.value) || 0)}
+                            value={payer.amount || ""}
+                            onChange={(e) =>
+                              updatePayer(
+                                index,
+                                "amount",
+                                parseFloat(e.target.value) || 0
+                              )
+                            }
                             className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-body"
                             disabled={loading}
                           />
@@ -518,7 +593,10 @@ export default function CreateExpense() {
 
                       <div className="bg-blue-50 p-3 rounded-lg">
                         <p className="text-sm text-blue-800 font-body">
-                          Total paid: <span className="font-semibold">${calculateTotalPaidAmount().toFixed(2)}</span>
+                          Total paid:{" "}
+                          <span className="font-semibold">
+                            ${calculateTotalPaidAmount().toFixed(2)}
+                          </span>
                         </p>
                       </div>
                     </div>
@@ -530,42 +608,65 @@ export default function CreateExpense() {
                       </h3>
 
                       {splits.map((split, index) => {
-                        const member = selectedGroup.members.find(m => m.user.id === split.userId);
+                        const member = selectedGroup.members.find(
+                          (m) => m.user.id === split.userId
+                        );
                         return (
-                          <div key={index} className="flex items-center space-x-3 mb-2">
+                          <div
+                            key={index}
+                            className="flex items-center space-x-3 mb-2"
+                          >
                             <span className="flex-1 px-3 py-2 bg-gray-50 rounded-lg font-body">
-                              {member ? (member.user.name || member.user.email) : 'Unknown member'}
+                              {member
+                                ? member.user.name || member.user.email
+                                : "Unknown member"}
                             </span>
                             <select
                               value={split.splitType}
-                              onChange={(e) => updateSplit(index, 'splitType', e.target.value)}
+                              onChange={(e) =>
+                                updateSplit(index, "splitType", e.target.value)
+                              }
                               className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-body"
                               disabled={loading}
                             >
                               <option value="EQUAL">Equal</option>
                               <option value="PERCENTAGE">Percentage</option>
-                              <option value="FIXED_AMOUNT">Fixed Amount</option>
+                              <option value="EXACT">Fixed Amount</option>
+                              <option value="SHARE">Share</option>
+                              <option value="ADJUSTMENT">Adjustment</option>
                             </select>
-                            {split.splitType === 'PERCENTAGE' && (
+                            {split.splitType === "PERCENTAGE" && (
                               <input
                                 type="number"
                                 min="0"
                                 max="100"
                                 placeholder="0-100%"
-                                value={split.percentage || ''}
-                                onChange={(e) => updateSplit(index, 'percentage', parseFloat(e.target.value) || 0)}
+                                value={split.percentage || ""}
+                                onChange={(e) =>
+                                  updateSplit(
+                                    index,
+                                    "percentage",
+                                    parseFloat(e.target.value) || 0
+                                  )
+                                }
                                 className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-body"
                                 disabled={loading}
                               />
                             )}
-                            {split.splitType === 'FIXED_AMOUNT' && (
+                            {split.splitType === "EXACT" && (
                               <input
                                 type="number"
                                 step="0.01"
                                 min="0"
                                 placeholder="Amount"
-                                value={split.amount || ''}
-                                onChange={(e) => updateSplit(index, 'amount', parseFloat(e.target.value) || 0)}
+                                value={split.amount || ""}
+                                onChange={(e) =>
+                                  updateSplit(
+                                    index,
+                                    "amount",
+                                    parseFloat(e.target.value) || 0
+                                  )
+                                }
                                 className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-body"
                                 disabled={loading}
                               />

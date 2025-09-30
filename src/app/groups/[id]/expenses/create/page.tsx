@@ -44,7 +44,9 @@ interface ExpenseSplit {
   email?: string;
   amount?: number;
   percentage?: number;
-  splitType: "EQUAL" | "PERCENTAGE" | "FIXED_AMOUNT";
+  share?: number;
+  adjustment?: number;
+  splitType: "EQUAL" | "PERCENTAGE" | "EXACT" | "SHARE" | "ADJUSTMENT";
 }
 
 const EXPENSE_CATEGORIES = [
@@ -81,9 +83,11 @@ export default function CreateGroupExpensePage({ params }: Props) {
   // Simple expense state
   const [payers, setPayers] = useState<ExpensePayer[]>([]);
   const [splits, setSplits] = useState<ExpenseSplit[]>([]);
-  const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
+  const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(
+    new Set()
+  );
   const [splitMethod, setSplitMethod] = useState<
-    "EQUAL" | "PERCENTAGE" | "FIXED_AMOUNT"
+    "EQUAL" | "PERCENTAGE" | "EXACT" | "SHARE" | "ADJUSTMENT"
   >("EQUAL");
 
   // Get group ID from params
@@ -120,32 +124,43 @@ export default function CreateGroupExpensePage({ params }: Props) {
 
         // Include both active/invited members AND pending invitations
         const memberParticipants = groupData.members
-          .filter((member: any) => member.status === "ACTIVE" || member.status === "INVITED")
-          .map((member: { id: string; user: User; role: string; status: string }) => ({
-            id: member.user.id,
-            name: member.user.name || member.user.email || "",
-            email: member.user.email || "",
-            type: "member" as const,
-            status: member.status
-          }));
+          .filter(
+            (member: any) =>
+              member.status === "ACTIVE" || member.status === "INVITED"
+          )
+          .map(
+            (member: {
+              id: string;
+              user: User;
+              role: string;
+              status: string;
+            }) => ({
+              id: member.user.id,
+              name: member.user.name || member.user.email || "",
+              email: member.user.email || "",
+              type: "member" as const,
+              status: member.status,
+            })
+          );
 
         // Add invitation-only users (not yet registered members)
         const invitationParticipants = invitationsData
-          .filter((invitation: any) => 
-            // Only include invitations for emails not already registered as members
-            !memberParticipants.find(m => m.email === invitation.email)
+          .filter(
+            (invitation: any) =>
+              // Only include invitations for emails not already registered as members
+              !memberParticipants.find((m: any) => m.email === invitation.email)
           )
           .map((invitation: any) => ({
             id: invitation.email, // Use email as ID for invitations
             name: invitation.email,
             email: invitation.email,
-            type: "invitation" as const
+            type: "invitation" as const,
           }));
 
         // Combine both lists
         const participants: Participant[] = [
           ...memberParticipants,
-          ...invitationParticipants
+          ...invitationParticipants,
         ];
         setAllParticipants(participants);
 
@@ -156,14 +171,21 @@ export default function CreateGroupExpensePage({ params }: Props) {
               m.user.email === session.user.email && m.status === "ACTIVE"
           );
           if (currentUser) {
-            setPayers([{ userId: currentUser.user.id, amount: 0 }]);
+            setPayers([
+              {
+                userId: currentUser.user.id,
+                amount: amount ? parseFloat(amount) : 0,
+              },
+            ]);
             // Initialize with current user selected as participant
             setSelectedParticipants(new Set([currentUser.user.id]));
-            setSplits([{
-              userId: currentUser.user.id,
-              splitType: "EQUAL" as const,
-              amount: 0
-            }]);
+            setSplits([
+              {
+                userId: currentUser.user.id,
+                splitType: "EQUAL" as const,
+                amount: 0,
+              },
+            ]);
           }
         }
       } catch (error) {
@@ -178,24 +200,32 @@ export default function CreateGroupExpensePage({ params }: Props) {
 
   // Update splits when participants change
   useEffect(() => {
-    const newSplits = Array.from(selectedParticipants).map(participantId => {
-      const participant = allParticipants.find(p => p.id === participantId);
-      if (!participant) return null;
-      
-      return participant.type === "member"
-        ? {
-            userId: participant.id,
-            splitType: splitMethod,
-            amount: 0,
-            percentage: splitMethod === "PERCENTAGE" ? 100 / selectedParticipants.size : undefined
-          }
-        : {
-            email: participant.email,
-            splitType: splitMethod,
-            amount: 0,
-            percentage: splitMethod === "PERCENTAGE" ? 100 / selectedParticipants.size : undefined
-          };
-    }).filter(Boolean);
+    const newSplits = Array.from(selectedParticipants)
+      .map((participantId) => {
+        const participant = allParticipants.find((p) => p.id === participantId);
+        if (!participant) return null;
+
+        return participant.type === "member"
+          ? {
+              userId: participant.id,
+              splitType: splitMethod,
+              amount: 0,
+              percentage:
+                splitMethod === "PERCENTAGE"
+                  ? 100 / selectedParticipants.size
+                  : undefined,
+            }
+          : {
+              email: participant.email,
+              splitType: splitMethod,
+              amount: 0,
+              percentage:
+                splitMethod === "PERCENTAGE"
+                  ? 100 / selectedParticipants.size
+                  : undefined,
+            };
+      })
+      .filter(Boolean);
     setSplits(newSplits);
   }, [selectedParticipants, splitMethod, allParticipants]);
 
@@ -211,7 +241,47 @@ export default function CreateGroupExpensePage({ params }: Props) {
         }))
       );
     }
+
+    if (splitMethod === "SHARE" && amount && splits.length > 0) {
+      const totalShares: number = splits.reduce((accumulator, currentSplit) => {
+        return accumulator + (currentSplit.share ? currentSplit.share : 1);
+      }, 0);
+      const totalAmount = parseFloat(amount);
+      setSplits((prev) =>
+        prev.map((split) => ({
+          ...split,
+          amount: (totalAmount * (split.share ? split.share : 1)) / totalShares,
+        }))
+      );
+    }
+
+    if (splitMethod === "ADJUSTMENT" && amount && splits.length > 0) {
+      const totalShares: number = splits.reduce((accumulator, currentSplit) => {
+        return accumulator + (currentSplit.share ? currentSplit.share : 1);
+      }, 0);
+      const totalAmount = parseFloat(amount);
+      setSplits((prev) =>
+        prev.map((split) => ({
+          ...split,
+          amount: (totalAmount * (split.share ? split.share : 1)) / totalShares,
+        }))
+      );
+    }
   }, [amount, splits.length, splitMethod]);
+
+  // Auto-calculate payers amount when amount/payers changes
+  useEffect(() => {
+    if (amount && payers.length > 0) {
+      const totalAmount = parseFloat(amount);
+      const equalAmount = totalAmount / payers.length;
+      setPayers((prev) =>
+        prev.map((payer) => ({
+          ...payer,
+          amount: equalAmount,
+        }))
+      );
+    }
+  }, [payers.length, amount]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -405,7 +475,10 @@ export default function CreateGroupExpensePage({ params }: Props) {
               </label>
               <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3">
                 {allParticipants.map((participant) => (
-                  <label key={participant.id} className="flex items-center space-x-3 cursor-pointer hover:bg-gray-50 p-2 rounded">
+                  <label
+                    key={participant.id}
+                    className="flex items-center space-x-3 cursor-pointer hover:bg-gray-50 p-2 rounded"
+                  >
                     <input
                       type="checkbox"
                       checked={selectedParticipants.has(participant.id)}
@@ -422,25 +495,32 @@ export default function CreateGroupExpensePage({ params }: Props) {
                     />
                     <div className="flex-1">
                       <div className="flex items-center space-x-2">
-                        <span className="text-sm font-medium text-gray-900">{participant.name}</span>
+                        <span className="text-sm font-medium text-gray-900">
+                          {participant.name}
+                        </span>
                         {participant.type === "invitation" && (
                           <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
                             Invited
                           </span>
                         )}
-                        {participant.type === "member" && (participant as any).status === "INVITED" && (
-                          <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
-                            Pending
-                          </span>
-                        )}
+                        {participant.type === "member" &&
+                          (participant as any).status === "INVITED" && (
+                            <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
+                              Pending
+                            </span>
+                          )}
                       </div>
-                      <div className="text-xs text-gray-500">{participant.email}</div>
+                      <div className="text-xs text-gray-500">
+                        {participant.email}
+                      </div>
                     </div>
                   </label>
                 ))}
               </div>
               {selectedParticipants.size === 0 && (
-                <p className="text-sm text-red-600 mt-2">Please select at least one participant.</p>
+                <p className="text-sm text-red-600 mt-2">
+                  Please select at least one participant.
+                </p>
               )}
             </div>
 
@@ -504,14 +584,15 @@ export default function CreateGroupExpensePage({ params }: Props) {
                         const participant = allParticipants.find(
                           (p) => p.id === selectedId
                         );
-                        if (participant && selectedParticipants.has(participant.id)) {
-                          const newPayer = participant.type === "member"
-                            ? { userId: participant.id, amount: 0 }
-                            : { email: participant.email, amount: 0 };
-                          setPayers([
-                            ...payers,
-                            newPayer,
-                          ]);
+                        if (
+                          participant &&
+                          selectedParticipants.has(participant.id)
+                        ) {
+                          const newPayer =
+                            participant.type === "member"
+                              ? { userId: participant.id, amount: 0 }
+                              : { email: participant.email, amount: 0 };
+                          setPayers([...payers, newPayer]);
                         }
                         e.target.value = "";
                       }
@@ -524,7 +605,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
                         (participant) =>
                           selectedParticipants.has(participant.id) &&
                           !payers.find(
-                            (p) => 
+                            (p) =>
                               (p.userId && p.userId === participant.id) ||
                               (p.email && p.email === participant.email)
                           )
@@ -557,7 +638,9 @@ export default function CreateGroupExpensePage({ params }: Props) {
                         e.target.value as
                           | "EQUAL"
                           | "PERCENTAGE"
-                          | "FIXED_AMOUNT"
+                          | "EXACT"
+                          | "SHARE"
+                          | "ADJUSTMENT"
                       )
                     }
                     className="mr-2"
@@ -574,29 +657,71 @@ export default function CreateGroupExpensePage({ params }: Props) {
                         e.target.value as
                           | "EQUAL"
                           | "PERCENTAGE"
-                          | "FIXED_AMOUNT"
+                          | "EXACT"
+                          | "SHARE"
+                          | "ADJUSTMENT"
                       )
                     }
                     className="mr-2"
                   />
-                  By percentage
+                  Percentages
                 </label>
                 <label className="flex items-center">
                   <input
                     type="radio"
-                    value="FIXED_AMOUNT"
-                    checked={splitMethod === "FIXED_AMOUNT"}
+                    value="EXACT"
+                    checked={splitMethod === "EXACT"}
                     onChange={(e) =>
                       setSplitMethod(
                         e.target.value as
                           | "EQUAL"
                           | "PERCENTAGE"
-                          | "FIXED_AMOUNT"
+                          | "EXACT"
+                          | "SHARE"
+                          | "ADJUSTMENT"
                       )
                     }
                     className="mr-2"
                   />
-                  Custom amounts
+                  Exact amounts
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    value="SHARE"
+                    checked={splitMethod === "SHARE"}
+                    onChange={(e) =>
+                      setSplitMethod(
+                        e.target.value as
+                          | "EQUAL"
+                          | "PERCENTAGE"
+                          | "EXACT"
+                          | "SHARE"
+                          | "ADJUSTMENT"
+                      )
+                    }
+                    className="mr-2"
+                  />
+                  Shares
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    value="ADJUSTMENT"
+                    checked={splitMethod === "ADJUSTMENT"}
+                    onChange={(e) =>
+                      setSplitMethod(
+                        e.target.value as
+                          | "EQUAL"
+                          | "PERCENTAGE"
+                          | "EXACT"
+                          | "SHARE"
+                          | "ADJUSTMENT"
+                      )
+                    }
+                    className="mr-2"
+                  />
+                  Adjustment
                 </label>
               </div>
 
@@ -617,6 +742,16 @@ export default function CreateGroupExpensePage({ params }: Props) {
                         {participant?.name}{" "}
                         {participant?.type === "invitation" && "(invited)"}
                       </span>
+                      {(splitMethod === "SHARE" ||
+                        splitMethod == "ADJUSTMENT") && (
+                        <span className="text-sm text-gray-500">
+                          {split.amount
+                            ? `Total share: ${
+                                group.currency
+                              } ${split.amount.toFixed(2)}`
+                            : ""}
+                        </span>
+                      )}
 
                       {splitMethod === "EQUAL" && (
                         <span className="text-sm text-gray-500">
@@ -654,7 +789,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
                         </div>
                       )}
 
-                      {splitMethod === "FIXED_AMOUNT" && (
+                      {splitMethod === "EXACT" && (
                         <input
                           type="number"
                           step="0.01"
@@ -669,6 +804,85 @@ export default function CreateGroupExpensePage({ params }: Props) {
                           className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                           placeholder="0.00"
                         />
+                      )}
+
+                      {splitMethod === "SHARE" && (
+                        <div className="flex items-center space-x-1">
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            value={split.share || 1}
+                            onChange={(e) => {
+                              const newSplits = [...splits];
+                              newSplits[index].share =
+                                parseFloat(e.target.value) || 0;
+                              const totalShares: number = newSplits.reduce(
+                                (accumulator, currentItem) => {
+                                  return (
+                                    accumulator +
+                                    (currentItem.share ? currentItem.share : 1)
+                                  );
+                                },
+                                0
+                              );
+                              newSplits.forEach((newSplit, newSplitIndex) => {
+                                newSplits[newSplitIndex].amount = amount
+                                  ? (parseFloat(amount) *
+                                      (newSplit.share || 1)) /
+                                    totalShares
+                                  : 0;
+                              });
+                              setSplits(newSplits);
+                            }}
+                            className="w-16 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            placeholder="0"
+                          />
+                          <span className="text-sm text-gray-500">
+                            share(s)
+                          </span>
+                        </div>
+                      )}
+
+                      {splitMethod === "ADJUSTMENT" && (
+                        <div className="flex items-center space-x-1">
+                          <span className="text-sm text-gray-500">
+                            +{group.currency}
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={split.adjustment || 0}
+                            onChange={(e) => {
+                              const newSplits = [...splits];
+                              newSplits[index].adjustment =
+                                parseFloat(e.target.value) || 0;
+                              const totalAdjustments: number = newSplits.reduce(
+                                (accumulator, currentSplit) => {
+                                  return (
+                                    accumulator +
+                                    (currentSplit.adjustment
+                                      ? currentSplit.adjustment
+                                      : 0)
+                                  );
+                                },
+                                0
+                              );
+                              newSplits.forEach((newSplit, newSplitIndex) => {
+                                newSplits[newSplitIndex].amount = amount
+                                  ? (parseFloat(amount) - totalAdjustments) /
+                                      newSplits.length +
+                                    (newSplit.adjustment
+                                      ? newSplit.adjustment
+                                      : 0)
+                                  : 0;
+                              });
+                              setSplits(newSplits);
+                            }}
+                            className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            placeholder="0.00"
+                          />
+                        </div>
                       )}
                     </div>
                   );
@@ -686,7 +900,12 @@ export default function CreateGroupExpensePage({ params }: Props) {
               </Link>
               <button
                 type="submit"
-                disabled={submitting || !description || !amount || selectedParticipants.size === 0}
+                disabled={
+                  submitting ||
+                  !description ||
+                  !amount ||
+                  selectedParticipants.size === 0
+                }
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {submitting ? "Creating..." : "Create Expense"}
