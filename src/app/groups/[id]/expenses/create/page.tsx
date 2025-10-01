@@ -993,248 +993,6 @@ export default function CreateGroupExpensePage({ params }: Props) {
               />
             </div>
 
-            {/* Itemized Split */}
-            <div className="border-t pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-md font-semibold text-gray-900">
-                    Split per item
-                  </h3>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Enable itemized mode to define items with their own participant splits.
-                  </p>
-                </div>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={isItemized}
-                    onChange={(e) => setIsItemized(e.target.checked)}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <span className="text-sm text-gray-700">Itemized</span>
-                </label>
-              </div>
-
-              {isItemized && (
-                <div className="mt-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-medium text-gray-900">
-                      Items
-                    </h4>
-                    <button
-                      type="button"
-                      onClick={addItem}
-                      className="px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      Add Item
-                    </button>
-                  </div>
-
-                  {items.map((item, index) => {
-                    const includedCount = item.participants.filter((p) => p.isIncluded).length;
-
-                    return (
-                      <div
-                        key={item.id}
-                        className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4"
-                      >
-                        <div className="flex items-center justify-between">
-                          <h5 className="text-sm font-semibold text-gray-900">
-                            Item {index + 1}
-                          </h5>
-                          <button
-                            type="button"
-                            onClick={() => removeItem(index)}
-                            className="text-red-600 hover:text-red-700 text-sm"
-                          >
-                            Remove
-                          </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <input
-                            type="text"
-                            value={item.name}
-                            onChange={(e) => updateItemName(index, e.target.value)}
-                            placeholder="Item name"
-                            className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.amount ? item.amount : ""}
-                            onChange={(e) =>
-                              updateItemAmount(index, parseFloat(e.target.value) || 0)
-                            }
-                            placeholder="Item amount"
-                            className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Split method
-                          </label>
-                          <select
-                            value={item.splitMethod}
-                            onChange={(e) =>
-                              updateItemSplitMethod(index, e.target.value as ItemSplitMethod)
-                            }
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                          >
-                            <option value="EQUAL">Equal</option>
-                            <option value="PERCENTAGE">Percentage</option>
-                            <option value="EXACT">Exact amount</option>
-                            <option value="SHARE">Shares</option>
-                          </select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <p className="text-sm font-medium text-gray-700">
-                            Participants
-                          </p>
-                          {item.participants.map((participantSplit) => {
-                            const participant = allParticipants.find(
-                              (p) => p.id === participantSplit.participantId
-                            );
-                            const isIncluded = participantSplit.isIncluded;
-                            const displayName =
-                              participant?.name || participant?.email || "Unknown participant";
-
-                            return (
-                              <div
-                                key={participantSplit.participantId}
-                                className="bg-white border border-gray-200 rounded-lg p-3 space-y-3"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <label className="flex items-center space-x-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={isIncluded}
-                                      onChange={(e) =>
-                                        toggleItemParticipant(
-                                          index,
-                                          participantSplit.participantId,
-                                          e.target.checked
-                                        )
-                                      }
-                                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                                    />
-                                    <span className="text-sm text-gray-900">
-                                      {displayName}
-                                    </span>
-                                    {participant?.type === "invitation" && (
-                                      <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
-                                        Invited
-                                      </span>
-                                    )}
-                                  </label>
-                                  {isIncluded && (
-                                    <span className="text-sm text-gray-500">
-                                      {group.currency}{" "}
-                                      {(participantSplit.amount || 0).toFixed(2)}
-                                    </span>
-                                  )}
-                                </div>
-
-                                {isIncluded && (
-                                  <div className="flex items-center space-x-3">
-                                    {item.splitMethod === "PERCENTAGE" && (
-                                      <div className="flex items-center space-x-2">
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          max="100"
-                                          step="0.1"
-                                          value={participantSplit.percentage ?? ""}
-                                          onChange={(e) =>
-                                            updateItemParticipantValue(
-                                              index,
-                                              participantSplit.participantId,
-                                              "percentage",
-                                              parseFloat(e.target.value) || 0
-                                            )
-                                          }
-                                          className="w-20 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                                        />
-                                        <span className="text-sm text-gray-500">%</span>
-                                      </div>
-                                    )}
-
-                                    {item.splitMethod === "EXACT" && (
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        value={participantSplit.amount ?? ""}
-                                        onChange={(e) =>
-                                          updateItemParticipantValue(
-                                            index,
-                                            participantSplit.participantId,
-                                            "amount",
-                                            parseFloat(e.target.value) || 0
-                                          )
-                                        }
-                                        className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                                      />
-                                    )}
-
-                                    {item.splitMethod === "SHARE" && (
-                                      <div className="flex items-center space-x-2">
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          step="1"
-                                          value={participantSplit.shares ?? 1}
-                                          onChange={(e) =>
-                                            updateItemParticipantValue(
-                                              index,
-                                              participantSplit.participantId,
-                                              "shares",
-                                              Math.max(0, parseInt(e.target.value, 10) || 0)
-                                            )
-                                          }
-                                          className="w-20 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                                        />
-                                        <span className="text-sm text-gray-500">share(s)</span>
-                                      </div>
-                                    )}
-
-                                    {item.splitMethod === "EQUAL" && includedCount > 0 && (
-                                      <span className="text-sm text-gray-500">
-                                        Equal share among {includedCount}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                          {item.participants.filter((p) => p.isIncluded).length === 0 && (
-                            <p className="text-sm text-red-600">
-                              Select at least one participant for this item.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {items.length === 0 && (
-                    <div className="border border-dashed border-gray-300 rounded-lg p-6 text-sm text-gray-500 text-center">
-                      Add at least one item to continue.
-                    </div>
-                  )}
-
-                  {items.length > 0 && (
-                    <div className="bg-blue-50 border border-blue-100 text-sm text-blue-800 rounded-lg p-3">
-                      Total of items: {group.currency} {itemTotal.toFixed(2)}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
 
             {/* Participants Selection */}
             <div>
@@ -1389,29 +1147,24 @@ export default function CreateGroupExpensePage({ params }: Props) {
             </div>
 
             {/* How to Split Section */}
-            {!isItemized && (
-              <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                How should this be split?
-              </label>
+            <div>
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-3">
+                <span className="text-sm font-medium text-gray-700">
+                  How should this be split?
+                </span>
+              </div>
 
-              {/* Split Method Selection */}
-              <div className="flex space-x-4 mb-4">
+              <div className="flex flex-wrap gap-4 mb-4">
                 <label className="flex items-center">
                   <input
                     type="radio"
+                    name="split-mode"
                     value="EQUAL"
-                    checked={splitMethod === "EQUAL"}
-                    onChange={(e) =>
-                      setSplitMethod(
-                        e.target.value as
-                          | "EQUAL"
-                          | "PERCENTAGE"
-                          | "EXACT"
-                          | "SHARE"
-                          | "ADJUSTMENT"
-                      )
-                    }
+                    checked={!isItemized && splitMethod === "EQUAL"}
+                    onChange={() => {
+                      setIsItemized(false);
+                      setSplitMethod("EQUAL");
+                    }}
                     className="mr-2"
                   />
                   Equal split
@@ -1419,18 +1172,13 @@ export default function CreateGroupExpensePage({ params }: Props) {
                 <label className="flex items-center">
                   <input
                     type="radio"
+                    name="split-mode"
                     value="PERCENTAGE"
-                    checked={splitMethod === "PERCENTAGE"}
-                    onChange={(e) =>
-                      setSplitMethod(
-                        e.target.value as
-                          | "EQUAL"
-                          | "PERCENTAGE"
-                          | "EXACT"
-                          | "SHARE"
-                          | "ADJUSTMENT"
-                      )
-                    }
+                    checked={!isItemized && splitMethod === "PERCENTAGE"}
+                    onChange={() => {
+                      setIsItemized(false);
+                      setSplitMethod("PERCENTAGE");
+                    }}
                     className="mr-2"
                   />
                   Percentages
@@ -1438,18 +1186,13 @@ export default function CreateGroupExpensePage({ params }: Props) {
                 <label className="flex items-center">
                   <input
                     type="radio"
+                    name="split-mode"
                     value="EXACT"
-                    checked={splitMethod === "EXACT"}
-                    onChange={(e) =>
-                      setSplitMethod(
-                        e.target.value as
-                          | "EQUAL"
-                          | "PERCENTAGE"
-                          | "EXACT"
-                          | "SHARE"
-                          | "ADJUSTMENT"
-                      )
-                    }
+                    checked={!isItemized && splitMethod === "EXACT"}
+                    onChange={() => {
+                      setIsItemized(false);
+                      setSplitMethod("EXACT");
+                    }}
                     className="mr-2"
                   />
                   Exact amounts
@@ -1457,18 +1200,13 @@ export default function CreateGroupExpensePage({ params }: Props) {
                 <label className="flex items-center">
                   <input
                     type="radio"
+                    name="split-mode"
                     value="SHARE"
-                    checked={splitMethod === "SHARE"}
-                    onChange={(e) =>
-                      setSplitMethod(
-                        e.target.value as
-                          | "EQUAL"
-                          | "PERCENTAGE"
-                          | "EXACT"
-                          | "SHARE"
-                          | "ADJUSTMENT"
-                      )
-                    }
+                    checked={!isItemized && splitMethod === "SHARE"}
+                    onChange={() => {
+                      setIsItemized(false);
+                      setSplitMethod("SHARE");
+                    }}
                     className="mr-2"
                   />
                   Shares
@@ -1476,189 +1214,382 @@ export default function CreateGroupExpensePage({ params }: Props) {
                 <label className="flex items-center">
                   <input
                     type="radio"
+                    name="split-mode"
                     value="ADJUSTMENT"
-                    checked={splitMethod === "ADJUSTMENT"}
-                    onChange={(e) =>
-                      setSplitMethod(
-                        e.target.value as
-                          | "EQUAL"
-                          | "PERCENTAGE"
-                          | "EXACT"
-                          | "SHARE"
-                          | "ADJUSTMENT"
-                      )
-                    }
+                    checked={!isItemized && splitMethod === "ADJUSTMENT"}
+                    onChange={() => {
+                      setIsItemized(false);
+                      setSplitMethod("ADJUSTMENT");
+                    }}
                     className="mr-2"
                   />
                   Adjustment
                 </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="split-mode"
+                    value="ITEMIZED"
+                    checked={isItemized}
+                    onChange={() => setIsItemized(true)}
+                    className="mr-2"
+                  />
+                  Itemized per item
+                </label>
               </div>
 
-              {/* Split Details */}
-              <div className="space-y-2">
-                {splits.map((split, index) => {
-                  const participant = allParticipants.find(
-                    (p) =>
-                      (split.userId && p.id === split.userId) ||
-                      (split.email && p.email === split.email)
-                  );
-                  return (
-                    <div
-                      key={split.userId || split.email}
-                      className="flex items-center space-x-3"
+              {isItemized ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-500">
+                    Define items and customize splits for each line. Total updates automatically.
+                  </p>
+
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-medium text-gray-900">Items</h4>
+                    <button
+                      type="button"
+                      onClick={addItem}
+                      className="px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
                     >
-                      <span className="flex-1 text-sm text-gray-900">
-                        {participant?.name}{" "}
-                        {participant?.type === "invitation" && "(invited)"}
-                      </span>
-                      {(splitMethod === "SHARE" ||
-                        splitMethod == "ADJUSTMENT") && (
-                        <span className="text-sm text-gray-500">
-                          {split.amount
-                            ? `Total share: ${
-                                group.currency
-                              } ${split.amount.toFixed(2)}`
-                            : ""}
-                        </span>
-                      )}
+                      Add Item
+                    </button>
+                  </div>
 
-                      {splitMethod === "EQUAL" && (
-                        <span className="text-sm text-gray-500">
-                          {amount
-                            ? `${group.currency} ${(
-                                parseFloat(amount) / splits.length
-                              ).toFixed(2)}`
-                            : "Equal share"}
-                        </span>
-                      )}
+                  {items.map((item, index) => {
+                    const includedCount = item.participants.filter((participant) => participant.isIncluded).length;
 
-                      {splitMethod === "PERCENTAGE" && (
-                        <div className="flex items-center space-x-1">
-                          <input
-                            type="number"
-                            step="0.1"
-                            min="0"
-                            max="100"
-                            value={split.percentage || 0}
-                            onChange={(e) => {
-                              const newSplits = [...splits];
-                              newSplits[index].percentage =
-                                parseFloat(e.target.value) || 0;
-                              newSplits[index].amount = amount
-                                ? (parseFloat(amount) *
-                                    (newSplits[index].percentage || 0)) /
-                                  100
-                                : 0;
-                              setSplits(newSplits);
-                            }}
-                            className="w-16 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                            placeholder="0"
-                          />
-                          <span className="text-sm text-gray-500">%</span>
+                    return (
+                      <div
+                        key={item.id}
+                        className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4"
+                      >
+                        <div className="flex items-center justify-between">
+                          <h5 className="text-sm font-semibold text-gray-900">
+                            Item {index + 1}
+                          </h5>
+                          <button
+                            type="button"
+                            onClick={() => removeItem(index)}
+                            className="text-red-600 hover:text-red-700 text-sm"
+                          >
+                            Remove
+                          </button>
                         </div>
-                      )}
 
-                      {splitMethod === "EXACT" && (
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={split.amount || 0}
-                          onChange={(e) => {
-                            const newSplits = [...splits];
-                            newSplits[index].amount =
-                              parseFloat(e.target.value) || 0;
-                            setSplits(newSplits);
-                          }}
-                          className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                          placeholder="0.00"
-                        />
-                      )}
-
-                      {splitMethod === "SHARE" && (
-                        <div className="flex items-center space-x-1">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <input
-                            type="number"
-                            step="1"
-                            min="0"
-                            value={split.share || 1}
-                            onChange={(e) => {
-                              const newSplits = [...splits];
-                              newSplits[index].share =
-                                parseFloat(e.target.value) || 0;
-                              const totalShares: number = newSplits.reduce(
-                                (accumulator, currentItem) => {
-                                  return (
-                                    accumulator +
-                                    (currentItem.share ? currentItem.share : 1)
-                                  );
-                                },
-                                0
-                              );
-                              newSplits.forEach((newSplit, newSplitIndex) => {
-                                newSplits[newSplitIndex].amount = amount
-                                  ? (parseFloat(amount) *
-                                      (newSplit.share || 1)) /
-                                    totalShares
-                                  : 0;
-                              });
-                              setSplits(newSplits);
-                            }}
-                            className="w-16 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                            placeholder="0"
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => updateItemName(index, e.target.value)}
+                            placeholder="Item name"
+                            className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           />
-                          <span className="text-sm text-gray-500">
-                            share(s)
-                          </span>
-                        </div>
-                      )}
-
-                      {splitMethod === "ADJUSTMENT" && (
-                        <div className="flex items-center space-x-1">
-                          <span className="text-sm text-gray-500">
-                            +{group.currency}
-                          </span>
                           <input
                             type="number"
+                            min="0"
                             step="0.01"
-                            value={split.adjustment || 0}
-                            onChange={(e) => {
-                              const newSplits = [...splits];
-                              newSplits[index].adjustment =
-                                parseFloat(e.target.value) || 0;
-                              const totalAdjustments: number = newSplits.reduce(
-                                (accumulator, currentSplit) => {
-                                  return (
-                                    accumulator +
-                                    (currentSplit.adjustment
-                                      ? currentSplit.adjustment
-                                      : 0)
-                                  );
-                                },
-                                0
-                              );
-                              newSplits.forEach((newSplit, newSplitIndex) => {
-                                newSplits[newSplitIndex].amount = amount
-                                  ? (parseFloat(amount) - totalAdjustments) /
-                                      newSplits.length +
-                                    (newSplit.adjustment
-                                      ? newSplit.adjustment
-                                      : 0)
-                                  : 0;
-                              });
-                              setSplits(newSplits);
-                            }}
-                            className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                            placeholder="0.00"
+                            value={item.amount ? item.amount : ""}
+                            onChange={(e) =>
+                              updateItemAmount(index, parseFloat(e.target.value) || 0)
+                            }
+                            placeholder="Item amount"
+                            className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           />
                         </div>
-                      )}
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Split method
+                          </label>
+                          <select
+                            value={item.splitMethod}
+                            onChange={(e) =>
+                              updateItemSplitMethod(index, e.target.value as ItemSplitMethod)
+                            }
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          >
+                            <option value="EQUAL">Equal</option>
+                            <option value="PERCENTAGE">Percentage</option>
+                            <option value="EXACT">Exact amount</option>
+                            <option value="SHARE">Shares</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium text-gray-700">Participants</p>
+                          {item.participants.map((participantSplit) => {
+                            const participant = allParticipants.find(
+                              (p) => p.id === participantSplit.participantId
+                            );
+                            const isIncluded = participantSplit.isIncluded;
+                            const displayName =
+                              participant?.name || participant?.email || "Unknown participant";
+
+                            return (
+                              <div
+                                key={participantSplit.participantId}
+                                className="bg-white border border-gray-200 rounded-lg p-3 space-y-3"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <label className="flex items-center space-x-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={isIncluded}
+                                      onChange={(e) =>
+                                        toggleItemParticipant(
+                                          index,
+                                          participantSplit.participantId,
+                                          e.target.checked
+                                        )
+                                      }
+                                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                    />
+                                    <span className="text-sm text-gray-900">{displayName}</span>
+                                    {participant?.type === "invitation" && (
+                                      <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
+                                        Invited
+                                      </span>
+                                    )}
+                                  </label>
+                                  {isIncluded && (
+                                    <span className="text-sm text-gray-500">
+                                      {group.currency}{" "}
+                                      {(participantSplit.amount || 0).toFixed(2)}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {isIncluded && (
+                                  <div className="flex items-center space-x-3">
+                                    {item.splitMethod === "PERCENTAGE" && (
+                                      <div className="flex items-center space-x-2">
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max="100"
+                                          step="0.1"
+                                          value={participantSplit.percentage ?? ""}
+                                          onChange={(e) =>
+                                            updateItemParticipantValue(
+                                              index,
+                                              participantSplit.participantId,
+                                              "percentage",
+                                              parseFloat(e.target.value) || 0
+                                            )
+                                          }
+                                          className="w-20 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                        />
+                                        <span className="text-sm text-gray-500">%</span>
+                                      </div>
+                                    )}
+
+                                    {item.splitMethod === "EXACT" && (
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={participantSplit.amount ?? ""}
+                                        onChange={(e) =>
+                                          updateItemParticipantValue(
+                                            index,
+                                            participantSplit.participantId,
+                                            "amount",
+                                            parseFloat(e.target.value) || 0
+                                          )
+                                        }
+                                        className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                      />
+                                    )}
+
+                                    {item.splitMethod === "SHARE" && (
+                                      <div className="flex items-center space-x-2">
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="1"
+                                          value={participantSplit.shares ?? 1}
+                                          onChange={(e) =>
+                                            updateItemParticipantValue(
+                                              index,
+                                              participantSplit.participantId,
+                                              "shares",
+                                              Math.max(0, parseInt(e.target.value, 10) || 0)
+                                            )
+                                          }
+                                          className="w-20 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                        />
+                                        <span className="text-sm text-gray-500">share(s)</span>
+                                      </div>
+                                    )}
+
+                                    {item.splitMethod === "EQUAL" && includedCount > 0 && (
+                                      <span className="text-sm text-gray-500">
+                                        Equal share among {includedCount}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {item.participants.filter((participant) => participant.isIncluded).length === 0 && (
+                            <p className="text-sm text-red-600">
+                              Select at least one participant for this item.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {items.length === 0 && (
+                    <div className="border border-dashed border-gray-300 rounded-lg p-6 text-sm text-gray-500 text-center">
+                      Add at least one item to continue.
                     </div>
-                  );
-                })}
-              </div>
-              </div>
-            )}
+                  )}
+
+                  {items.length > 0 && (
+                    <div className="bg-blue-50 border border-blue-100 text-sm text-blue-800 rounded-lg p-3">
+                      Total of items: {group.currency} {itemTotal.toFixed(2)}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-500 mb-4">
+                    Choose a method to split the total amount among selected participants.
+                  </p>
+
+                  <div className="space-y-2">
+                    {splits.map((split, index) => {
+                      const participant = allParticipants.find((p) =>
+                        (split.userId && p.id === split.userId) ||
+                        (split.email && p.email === split.email)
+                      );
+                      return (
+                        <div
+                          key={split.userId || split.email}
+                          className="flex items-center space-x-3"
+                        >
+                          <span className="flex-1 text-sm text-gray-900">
+                            {participant?.name}{" "}
+                            {participant?.type === "invitation" && "(invited)"}
+                          </span>
+                          {(splitMethod === "SHARE" || splitMethod === "ADJUSTMENT") && (
+                            <span className="text-sm text-gray-500">
+                              {split.amount
+                                ? `Total share: ${group.currency} ${split.amount.toFixed(2)}`
+                                : ""}
+                            </span>
+                          )}
+
+                          {splitMethod === "EQUAL" && (
+                            <span className="text-sm text-gray-500">
+                              {amount
+                                ? `${group.currency} ${(parseFloat(amount) / splits.length).toFixed(2)}`
+                                : "Equal share"}
+                            </span>
+                          )}
+
+                          {splitMethod === "PERCENTAGE" && (
+                            <div className="flex items-center space-x-1">
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                max="100"
+                                value={split.percentage || 0}
+                                onChange={(e) => {
+                                  const newSplits = [...splits];
+                                  newSplits[index].percentage = parseFloat(e.target.value) || 0;
+                                  newSplits[index].amount = amount
+                                    ? (parseFloat(amount) * (newSplits[index].percentage || 0)) / 100
+                                    : 0;
+                                  setSplits(newSplits);
+                                }}
+                                className="w-16 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                placeholder="0"
+                              />
+                              <span className="text-sm text-gray-500">%</span>
+                            </div>
+                          )}
+
+                          {splitMethod === "EXACT" && (
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={split.amount || 0}
+                              onChange={(e) => {
+                                const newSplits = [...splits];
+                                newSplits[index].amount = parseFloat(e.target.value) || 0;
+                                setSplits(newSplits);
+                              }}
+                              className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                              placeholder="0.00"
+                            />
+                          )}
+
+                          {splitMethod === "SHARE" && (
+                            <div className="flex items-center space-x-1">
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                value={split.share || 1}
+                                onChange={(e) => {
+                                  const newSplits = [...splits];
+                                  newSplits[index].share = parseFloat(e.target.value) || 0;
+                                  const totalShares = newSplits.reduce((accumulator, currentItem) => {
+                                    return accumulator + (currentItem.share ? currentItem.share : 1);
+                                  }, 0);
+                                  newSplits.forEach((newSplit, newSplitIndex) => {
+                                    newSplits[newSplitIndex].amount = amount
+                                      ? (parseFloat(amount) * (newSplit.share || 1)) / totalShares
+                                      : 0;
+                                  });
+                                  setSplits(newSplits);
+                                }}
+                                className="w-16 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                placeholder="0"
+                              />
+                              <span className="text-sm text-gray-500">share(s)</span>
+                            </div>
+                          )}
+
+                          {splitMethod === "ADJUSTMENT" && (
+                            <div className="flex items-center space-x-1">
+                              <span className="text-sm text-gray-500">+{group.currency}</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={split.adjustment || 0}
+                                onChange={(e) => {
+                                  const newSplits = [...splits];
+                                  newSplits[index].adjustment = parseFloat(e.target.value) || 0;
+                                  const totalAdjustments = newSplits.reduce((accumulator, currentSplit) => {
+                                    return accumulator + (currentSplit.adjustment ? currentSplit.adjustment : 0);
+                                  }, 0);
+                                  newSplits.forEach((newSplit, newSplitIndex) => {
+                                    newSplits[newSplitIndex].amount = amount
+                                      ? (parseFloat(amount) - totalAdjustments) / newSplits.length +
+                                        (newSplit.adjustment ? newSplit.adjustment : 0)
+                                      : 0;
+                                  });
+                                  setSplits(newSplits);
+                                }}
+                                className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                placeholder="0.00"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Action Buttons */}
             <div className="flex justify-end space-x-3 pt-6 border-t">
