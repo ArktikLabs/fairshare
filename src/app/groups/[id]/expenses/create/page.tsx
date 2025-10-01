@@ -49,6 +49,26 @@ interface ExpenseSplit {
   splitType: "EQUAL" | "PERCENTAGE" | "EXACT" | "SHARE" | "ADJUSTMENT";
 }
 
+interface ItemParticipantSplit {
+  userId?: string;
+  email?: string;
+  participantId: string;
+  isIncluded: boolean;
+  amount?: number;
+  percentage?: number;
+  shares?: number;
+}
+
+type ItemSplitMethod = "EQUAL" | "PERCENTAGE" | "EXACT" | "SHARE";
+
+interface ItemFormState {
+  id: string;
+  name: string;
+  amount: number;
+  splitMethod: ItemSplitMethod;
+  participants: ItemParticipantSplit[];
+}
+
 const EXPENSE_CATEGORIES = [
   { value: "FOOD_DRINK", label: "🍽️ Food & Drink" },
   { value: "TRANSPORTATION", label: "🚗 Transportation" },
@@ -79,6 +99,8 @@ export default function CreateGroupExpensePage({ params }: Props) {
   const [category, setCategory] = useState("FOOD_DRINK");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState("");
+  const [isItemized, setIsItemized] = useState(false);
+  const [items, setItems] = useState<ItemFormState[]>([]);
 
   // Simple expense state
   const [payers, setPayers] = useState<ExpensePayer[]>([]);
@@ -89,6 +111,288 @@ export default function CreateGroupExpensePage({ params }: Props) {
   const [splitMethod, setSplitMethod] = useState<
     "EQUAL" | "PERCENTAGE" | "EXACT" | "SHARE" | "ADJUSTMENT"
   >("EQUAL");
+
+  const generateItemId = () =>
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+
+  const itemTotal = items.reduce((sum, item) => sum + (item.amount || 0), 0);
+
+  const displayedAmount = isItemized
+    ? itemTotal > 0
+      ? itemTotal.toFixed(2)
+      : ""
+    : amount;
+
+  const buildItemParticipants = (): ItemParticipantSplit[] => {
+    return Array.from(selectedParticipants)
+      .map((participantId) => {
+        const participant = allParticipants.find((p) => p.id === participantId);
+        if (!participant) {
+          return null;
+        }
+
+        if (participant.type === "member") {
+          return {
+            participantId: participant.id,
+            userId: participant.id,
+            isIncluded: true,
+            amount: 0,
+          } as ItemParticipantSplit;
+        }
+
+        return {
+          participantId: participant.id,
+          email: participant.email,
+          isIncluded: true,
+          amount: 0,
+        } as ItemParticipantSplit;
+      })
+      .filter(
+        (participant): participant is ItemParticipantSplit => participant !== null
+      );
+  };
+
+  const recalculateItemSplits = (item: ItemFormState): ItemFormState => {
+    const updatedParticipants = item.participants.map((participant) => ({
+      ...participant,
+    }));
+    const included = updatedParticipants.filter((participant) => participant.isIncluded);
+
+    if (included.length === 0) {
+      return {
+        ...item,
+        participants: updatedParticipants.map((participant) => ({
+          ...participant,
+          amount: 0,
+          percentage: undefined,
+          shares: undefined,
+        })),
+      };
+    }
+
+    switch (item.splitMethod) {
+      case "EQUAL": {
+        const equalAmount = item.amount > 0 ? item.amount / included.length : 0;
+        const recalculated = updatedParticipants.map((participant) =>
+          participant.isIncluded
+            ? {
+                ...participant,
+                amount: equalAmount,
+                percentage: undefined,
+                shares: undefined,
+              }
+            : {
+                ...participant,
+                amount: 0,
+                percentage: undefined,
+                shares: undefined,
+              }
+        );
+        return { ...item, participants: recalculated };
+      }
+      case "PERCENTAGE": {
+        const defaultPercentage = 100 / included.length;
+        const recalculated = updatedParticipants.map((participant) => {
+          if (!participant.isIncluded) {
+            return {
+              ...participant,
+              amount: 0,
+              percentage: undefined,
+              shares: undefined,
+            };
+          }
+
+          const percentage =
+            participant.percentage !== undefined
+              ? participant.percentage
+              : defaultPercentage;
+
+          return {
+            ...participant,
+            percentage,
+            shares: undefined,
+            amount: item.amount > 0 ? (item.amount * percentage) / 100 : 0,
+          };
+        });
+        return { ...item, participants: recalculated };
+      }
+      case "EXACT": {
+        const recalculated = updatedParticipants.map((participant) =>
+          participant.isIncluded
+            ? {
+                ...participant,
+                amount: participant.amount || 0,
+                percentage: undefined,
+                shares: undefined,
+              }
+            : {
+                ...participant,
+                amount: 0,
+                percentage: undefined,
+                shares: undefined,
+              }
+        );
+        return { ...item, participants: recalculated };
+      }
+      case "SHARE": {
+        const defaultShare = 1;
+        const totalShares = updatedParticipants.reduce((sum, participant) => {
+          if (!participant.isIncluded) {
+            return sum;
+          }
+          return sum + (participant.shares || defaultShare);
+        }, 0);
+        const shareDenominator =
+          totalShares > 0 ? totalShares : included.length * defaultShare;
+        const recalculated = updatedParticipants.map((participant) => {
+          if (!participant.isIncluded) {
+            return {
+              ...participant,
+              amount: 0,
+              percentage: undefined,
+              shares: undefined,
+            };
+          }
+
+          const shares = participant.shares || defaultShare;
+
+          return {
+            ...participant,
+            shares,
+            percentage: undefined,
+            amount:
+              item.amount > 0 && shareDenominator > 0
+                ? (item.amount * shares) / shareDenominator
+                : 0,
+          };
+        });
+        return { ...item, participants: recalculated };
+      }
+      default:
+        return item;
+    }
+  };
+
+  const createNewItem = (): ItemFormState => {
+    const participants = buildItemParticipants();
+    const baseItem: ItemFormState = {
+      id: generateItemId(),
+      name: "",
+      amount: 0,
+      splitMethod: "EQUAL",
+      participants,
+    };
+    return recalculateItemSplits(baseItem);
+  };
+
+  const addItem = () => {
+    setItems((prev) => [...prev, createNewItem()]);
+  };
+
+  const removeItem = (index: number) => {
+    setItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const updateItemName = (index: number, value: string) => {
+    setItems((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], name: value };
+      return next;
+    });
+  };
+
+  const updateItemAmount = (index: number, value: number) => {
+    setItems((prev) => {
+      const next = [...prev];
+      const updatedItem = { ...next[index], amount: value };
+      next[index] = recalculateItemSplits(updatedItem);
+      return next;
+    });
+  };
+
+  const updateItemSplitMethod = (index: number, method: ItemSplitMethod) => {
+    setItems((prev) => {
+      const next = [...prev];
+      const updatedItem: ItemFormState = {
+        ...next[index],
+        splitMethod: method,
+        participants: next[index].participants.map((participant) => ({
+          ...participant,
+        })),
+      };
+      next[index] = recalculateItemSplits(updatedItem);
+      return next;
+    });
+  };
+
+  const toggleItemParticipant = (
+    itemIndex: number,
+    participantId: string,
+    isIncluded: boolean
+  ) => {
+    setItems((prev) => {
+      const next = [...prev];
+      const updatedItem: ItemFormState = {
+        ...next[itemIndex],
+        participants: next[itemIndex].participants.map((participant) => {
+          if (participant.participantId !== participantId) {
+            return { ...participant };
+          }
+
+          return {
+            ...participant,
+            isIncluded,
+            amount: isIncluded ? participant.amount || 0 : 0,
+            percentage: isIncluded ? participant.percentage : undefined,
+            shares: isIncluded ? participant.shares : undefined,
+          };
+        }),
+      };
+      next[itemIndex] = recalculateItemSplits(updatedItem);
+      return next;
+    });
+  };
+
+  const updateItemParticipantValue = (
+    itemIndex: number,
+    participantId: string,
+    field: "amount" | "percentage" | "shares",
+    value: number
+  ) => {
+    setItems((prev) => {
+      const next = [...prev];
+      const updatedItem: ItemFormState = {
+        ...next[itemIndex],
+        participants: next[itemIndex].participants.map((participant) => {
+          if (participant.participantId !== participantId) {
+            return { ...participant };
+          }
+
+          if (field === "shares") {
+            return { ...participant, shares: value };
+          }
+
+          if (field === "percentage") {
+            return { ...participant, percentage: value };
+          }
+
+          return { ...participant, amount: value };
+        }),
+      };
+      next[itemIndex] = recalculateItemSplits(updatedItem);
+      return next;
+    });
+  };
+
+  const mapToApiSplitMethod = (
+    method: "EQUAL" | "PERCENTAGE" | "EXACT" | "SHARE" | "ADJUSTMENT"
+  ): "EQUAL" | "PERCENTAGE" | "EXACT" | "SHARES" => {
+    if (method === "SHARE") return "SHARES";
+    if (method === "ADJUSTMENT") return "EXACT";
+    return method;
+  };
 
   // Get group ID from params
   useEffect(() => {
@@ -229,8 +533,67 @@ export default function CreateGroupExpensePage({ params }: Props) {
     setSplits(newSplits);
   }, [selectedParticipants, splitMethod, allParticipants]);
 
+  useEffect(() => {
+    if (!isItemized) return;
+
+    setItems((prevItems) => {
+      if (prevItems.length === 0) {
+        return prevItems;
+      }
+
+      return prevItems.map((item) => {
+        const participantMap = new Map(
+          item.participants.map((participant) => [
+            participant.participantId,
+            participant,
+          ])
+        );
+
+        const updatedParticipants = Array.from(selectedParticipants)
+          .map((participantId) => {
+            const existingParticipant = participantMap.get(participantId);
+            if (existingParticipant) {
+              return { ...existingParticipant };
+            }
+
+            const participant = allParticipants.find((p) => p.id === participantId);
+            if (!participant) {
+              return null;
+            }
+
+            if (participant.type === "member") {
+              return {
+                participantId: participant.id,
+                userId: participant.id,
+                isIncluded: true,
+                amount: 0,
+              } as ItemParticipantSplit;
+            }
+
+            return {
+              participantId: participant.id,
+              email: participant.email,
+              isIncluded: true,
+              amount: 0,
+            } as ItemParticipantSplit;
+          })
+          .filter(
+            (participant): participant is ItemParticipantSplit =>
+              participant !== null
+          );
+
+        return recalculateItemSplits({
+          ...item,
+          participants: updatedParticipants,
+        });
+      });
+    });
+  }, [selectedParticipants, allParticipants, isItemized]);
+
   // Auto-calculate equal splits when amount changes
   useEffect(() => {
+    if (isItemized) return;
+
     if (splitMethod === "EQUAL" && amount && splits.length > 0) {
       const totalAmount = parseFloat(amount);
       const equalAmount = totalAmount / splits.length;
@@ -267,12 +630,19 @@ export default function CreateGroupExpensePage({ params }: Props) {
         }))
       );
     }
-  }, [amount, splits.length, splitMethod]);
+  }, [amount, splits.length, splitMethod, isItemized]);
 
   // Auto-calculate payers amount when amount/payers changes
   useEffect(() => {
-    if (amount && payers.length > 0) {
-      const totalAmount = parseFloat(amount);
+    if (payers.length === 0) return;
+
+    const totalAmount = isItemized
+      ? itemTotal
+      : amount
+      ? parseFloat(amount)
+      : 0;
+
+    if (totalAmount > 0) {
       const equalAmount = totalAmount / payers.length;
       setPayers((prev) =>
         prev.map((payer) => ({
@@ -280,8 +650,15 @@ export default function CreateGroupExpensePage({ params }: Props) {
           amount: equalAmount,
         }))
       );
+    } else {
+      setPayers((prev) =>
+        prev.map((payer) => ({
+          ...payer,
+          amount: 0,
+        }))
+      );
     }
-  }, [payers.length, amount]);
+  }, [payers.length, amount, isItemized, itemTotal]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -290,25 +667,162 @@ export default function CreateGroupExpensePage({ params }: Props) {
     setSubmitting(true);
 
     try {
-      const expenseData = {
-        description,
-        amount: parseFloat(amount),
-        category,
-        date,
-        notes,
-        groupId: group.id,
-        splitMethod,
-        payers: payers.map((p) => ({
-          ...(p.userId ? { userId: p.userId } : { email: p.email }),
-          amountPaid: p.amount,
-        })),
-        participants: splits.map((s) => ({
-          ...(s.userId ? { userId: s.userId } : { email: s.email }),
-          amount: s.amount,
-          percentage: s.percentage,
-          shares: s.splitType === "EQUAL" ? 1 : undefined,
-        })),
-      };
+      const totalAmount = isItemized
+        ? itemTotal
+        : amount
+        ? parseFloat(amount)
+        : 0;
+
+      if (!totalAmount || totalAmount <= 0) {
+        alert("Please enter a valid amount for the expense.");
+        return;
+      }
+
+      let preparedItems:
+        | {
+            name: string;
+            amount: number;
+            isShared: boolean;
+            splitMethod: "EQUAL" | "PERCENTAGE" | "EXACT" | "SHARES";
+            participants: {
+              userId?: string;
+              email?: string;
+              amount: number;
+              percentage?: number;
+              shares?: number;
+            }[];
+          }[]
+        | undefined;
+
+      if (isItemized) {
+        if (items.length === 0) {
+          alert("Add at least one item to continue.");
+          return;
+        }
+
+        const validationErrors: string[] = [];
+
+        preparedItems = items.map((item, index) => {
+          const includedParticipants = item.participants.filter(
+            (participant) => participant.isIncluded
+          );
+
+          if (!item.name.trim()) {
+            validationErrors.push(`Item ${index + 1} needs a name.`);
+          }
+
+          if (!item.amount || item.amount <= 0) {
+            validationErrors.push(
+              `Item ${index + 1} must have an amount greater than 0.`
+            );
+          }
+
+          if (includedParticipants.length === 0) {
+            validationErrors.push(
+              `Select at least one participant for item ${index + 1}.`
+            );
+          }
+
+          if (item.splitMethod === "PERCENTAGE") {
+            const totalPercentage = includedParticipants.reduce(
+              (sum, participant) => sum + (participant.percentage || 0),
+              0
+            );
+            if (Math.abs(totalPercentage - 100) > 0.5) {
+              validationErrors.push(
+                `Percentages for item ${index + 1} should total 100%.`
+              );
+            }
+          }
+
+          const participantsPayload = includedParticipants.map((participant) => {
+            const participantPayload: {
+              userId?: string;
+              email?: string;
+              amount: number;
+              percentage?: number;
+              shares?: number;
+            } = {
+              ...(participant.userId
+                ? { userId: participant.userId }
+                : { email: participant.email }),
+              amount: participant.amount || 0,
+            };
+
+            if (item.splitMethod === "PERCENTAGE") {
+              participantPayload.percentage = participant.percentage ?? 0;
+            }
+
+            if (item.splitMethod === "SHARE") {
+              participantPayload.shares = participant.shares || 1;
+            }
+
+            return participantPayload;
+          });
+
+          return {
+            name: item.name.trim() || `Item ${index + 1}`,
+            amount: item.amount,
+            isShared: includedParticipants.length > 1,
+            splitMethod:
+              item.splitMethod === "SHARE" ? "SHARES" : item.splitMethod,
+            participants: participantsPayload,
+          };
+        });
+
+        if (validationErrors.length > 0) {
+          alert(validationErrors[0]);
+          return;
+        }
+      }
+
+      const normalizedPayers = payers.map((payer) => ({
+        ...(payer.userId ? { userId: payer.userId } : { email: payer.email }),
+        amountPaid: payer.amount,
+      }));
+
+      const expenseData = isItemized
+        ? {
+            description,
+            amount: totalAmount,
+            category,
+            date,
+            notes,
+            groupId: group.id,
+            payers: normalizedPayers,
+            items: preparedItems!,
+          }
+        : {
+            description,
+            amount: totalAmount,
+            category,
+            date,
+            notes,
+            groupId: group.id,
+            splitMethod: mapToApiSplitMethod(splitMethod),
+            payers: normalizedPayers,
+            participants: splits.map((split) => {
+              const participantPayload: {
+                userId?: string;
+                email?: string;
+                amount: number | undefined;
+                percentage?: number;
+                shares?: number;
+              } = {
+                ...(split.userId
+                  ? { userId: split.userId }
+                  : { email: split.email }),
+                amount: split.amount ?? 0,
+                percentage: split.percentage,
+              };
+
+              if (splitMethod === "SHARE") {
+                participantPayload.shares = split.share ?? 1;
+              }
+
+              return participantPayload;
+            }),
+          };
 
       const response = await fetch("/api/expenses", {
         method: "POST",
@@ -331,6 +845,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
       setSubmitting(false);
     }
   };
+
 
   if (loading) {
     return (
@@ -416,12 +931,22 @@ export default function CreateGroupExpensePage({ params }: Props) {
                   type="number"
                   step="0.01"
                   min="0"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0.00"
+                  value={displayedAmount}
+                  onChange={(e) => {
+                    if (!isItemized) {
+                      setAmount(e.target.value);
+                    }
+                  }}
+                  placeholder={isItemized ? "Calculated from items" : "0.00"}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
+                  required={!isItemized}
+                  disabled={isItemized}
                 />
+                {isItemized && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Total is computed from itemized entries.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -466,6 +991,249 @@ export default function CreateGroupExpensePage({ params }: Props) {
                 rows={3}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
+            </div>
+
+            {/* Itemized Split */}
+            <div className="border-t pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-md font-semibold text-gray-900">
+                    Split per item
+                  </h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Enable itemized mode to define items with their own participant splits.
+                  </p>
+                </div>
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={isItemized}
+                    onChange={(e) => setIsItemized(e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <span className="text-sm text-gray-700">Itemized</span>
+                </label>
+              </div>
+
+              {isItemized && (
+                <div className="mt-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-medium text-gray-900">
+                      Items
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={addItem}
+                      className="px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      Add Item
+                    </button>
+                  </div>
+
+                  {items.map((item, index) => {
+                    const includedCount = item.participants.filter((p) => p.isIncluded).length;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4"
+                      >
+                        <div className="flex items-center justify-between">
+                          <h5 className="text-sm font-semibold text-gray-900">
+                            Item {index + 1}
+                          </h5>
+                          <button
+                            type="button"
+                            onClick={() => removeItem(index)}
+                            className="text-red-600 hover:text-red-700 text-sm"
+                          >
+                            Remove
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => updateItemName(index, e.target.value)}
+                            placeholder="Item name"
+                            className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.amount ? item.amount : ""}
+                            onChange={(e) =>
+                              updateItemAmount(index, parseFloat(e.target.value) || 0)
+                            }
+                            placeholder="Item amount"
+                            className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Split method
+                          </label>
+                          <select
+                            value={item.splitMethod}
+                            onChange={(e) =>
+                              updateItemSplitMethod(index, e.target.value as ItemSplitMethod)
+                            }
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          >
+                            <option value="EQUAL">Equal</option>
+                            <option value="PERCENTAGE">Percentage</option>
+                            <option value="EXACT">Exact amount</option>
+                            <option value="SHARE">Shares</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium text-gray-700">
+                            Participants
+                          </p>
+                          {item.participants.map((participantSplit) => {
+                            const participant = allParticipants.find(
+                              (p) => p.id === participantSplit.participantId
+                            );
+                            const isIncluded = participantSplit.isIncluded;
+                            const displayName =
+                              participant?.name || participant?.email || "Unknown participant";
+
+                            return (
+                              <div
+                                key={participantSplit.participantId}
+                                className="bg-white border border-gray-200 rounded-lg p-3 space-y-3"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <label className="flex items-center space-x-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={isIncluded}
+                                      onChange={(e) =>
+                                        toggleItemParticipant(
+                                          index,
+                                          participantSplit.participantId,
+                                          e.target.checked
+                                        )
+                                      }
+                                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                    />
+                                    <span className="text-sm text-gray-900">
+                                      {displayName}
+                                    </span>
+                                    {participant?.type === "invitation" && (
+                                      <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
+                                        Invited
+                                      </span>
+                                    )}
+                                  </label>
+                                  {isIncluded && (
+                                    <span className="text-sm text-gray-500">
+                                      {group.currency}{" "}
+                                      {(participantSplit.amount || 0).toFixed(2)}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {isIncluded && (
+                                  <div className="flex items-center space-x-3">
+                                    {item.splitMethod === "PERCENTAGE" && (
+                                      <div className="flex items-center space-x-2">
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max="100"
+                                          step="0.1"
+                                          value={participantSplit.percentage ?? ""}
+                                          onChange={(e) =>
+                                            updateItemParticipantValue(
+                                              index,
+                                              participantSplit.participantId,
+                                              "percentage",
+                                              parseFloat(e.target.value) || 0
+                                            )
+                                          }
+                                          className="w-20 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                        />
+                                        <span className="text-sm text-gray-500">%</span>
+                                      </div>
+                                    )}
+
+                                    {item.splitMethod === "EXACT" && (
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={participantSplit.amount ?? ""}
+                                        onChange={(e) =>
+                                          updateItemParticipantValue(
+                                            index,
+                                            participantSplit.participantId,
+                                            "amount",
+                                            parseFloat(e.target.value) || 0
+                                          )
+                                        }
+                                        className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                      />
+                                    )}
+
+                                    {item.splitMethod === "SHARE" && (
+                                      <div className="flex items-center space-x-2">
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="1"
+                                          value={participantSplit.shares ?? 1}
+                                          onChange={(e) =>
+                                            updateItemParticipantValue(
+                                              index,
+                                              participantSplit.participantId,
+                                              "shares",
+                                              Math.max(0, parseInt(e.target.value, 10) || 0)
+                                            )
+                                          }
+                                          className="w-20 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                        />
+                                        <span className="text-sm text-gray-500">share(s)</span>
+                                      </div>
+                                    )}
+
+                                    {item.splitMethod === "EQUAL" && includedCount > 0 && (
+                                      <span className="text-sm text-gray-500">
+                                        Equal share among {includedCount}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {item.participants.filter((p) => p.isIncluded).length === 0 && (
+                            <p className="text-sm text-red-600">
+                              Select at least one participant for this item.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {items.length === 0 && (
+                    <div className="border border-dashed border-gray-300 rounded-lg p-6 text-sm text-gray-500 text-center">
+                      Add at least one item to continue.
+                    </div>
+                  )}
+
+                  {items.length > 0 && (
+                    <div className="bg-blue-50 border border-blue-100 text-sm text-blue-800 rounded-lg p-3">
+                      Total of items: {group.currency} {itemTotal.toFixed(2)}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Participants Selection */}
@@ -621,7 +1389,8 @@ export default function CreateGroupExpensePage({ params }: Props) {
             </div>
 
             {/* How to Split Section */}
-            <div>
+            {!isItemized && (
+              <div>
               <label className="block text-sm font-medium text-gray-700 mb-3">
                 How should this be split?
               </label>
@@ -888,7 +1657,8 @@ export default function CreateGroupExpensePage({ params }: Props) {
                   );
                 })}
               </div>
-            </div>
+              </div>
+            )}
 
             {/* Action Buttons */}
             <div className="flex justify-end space-x-3 pt-6 border-t">
@@ -903,8 +1673,8 @@ export default function CreateGroupExpensePage({ params }: Props) {
                 disabled={
                   submitting ||
                   !description ||
-                  !amount ||
-                  selectedParticipants.size === 0
+                  selectedParticipants.size === 0 ||
+                  (isItemized ? itemTotal <= 0 || items.length === 0 : !amount)
                 }
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
