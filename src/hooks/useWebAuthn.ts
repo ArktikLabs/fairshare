@@ -1,10 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  startRegistration,
-  startAuthentication,
-} from "@simplewebauthn/browser";
+// Dynamic imports for browser-only APIs
 import { signIn } from "next-auth/react";
 
 export function useWebAuthn() {
@@ -25,6 +22,7 @@ export function useWebAuthn() {
       const options = await optionsResponse.json();
 
       // Start WebAuthn registration
+      const { startRegistration } = await import("@simplewebauthn/browser");
       const credential = await startRegistration(options);
 
       // Verify registration with server
@@ -81,6 +79,7 @@ export function useWebAuthn() {
       const options = await optionsResponse.json();
 
       // Start WebAuthn authentication
+      const { startAuthentication } = await import("@simplewebauthn/browser");
       const credential = await startAuthentication(options);
 
       // Verify authentication with server

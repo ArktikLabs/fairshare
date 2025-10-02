@@ -83,7 +83,9 @@ export default function AccountPage() {
         setMessage("Profile updated successfully!");
         setIsEditing(false);
         // Refresh session to get updated data
-        window.location.reload();
+        if (typeof window !== "undefined") {
+          window.location.reload();
+        }
       } else {
         setMessage("Failed to update profile. Please try again.");
       }

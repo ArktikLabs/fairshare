@@ -66,7 +66,11 @@ export default function SettlementSuggestions({ group, currentUserId }: Props) {
         <div className="text-center py-8">
           <p className="text-red-600 mb-4">{error}</p>
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              if (typeof window !== "undefined") {
+                window.location.reload();
+              }
+            }}
             className="text-blue-600 hover:text-blue-800 font-medium"
           >
             Try Again

@@ -78,7 +78,9 @@ export default function MemberManagement({
         } else {
           setSuccess(`${newMemberEmail} added to the group!`);
           setTimeout(() => {
-            window.location.reload();
+            if (typeof window !== "undefined") {
+              window.location.reload();
+            }
           }, 1000);
         }
         setNewMemberEmail("");
@@ -123,7 +125,9 @@ export default function MemberManagement({
       setSuccess("Member removed successfully!");
 
       // Refresh the page to reflect the change
-      window.location.reload();
+      if (typeof window !== "undefined") {
+        window.location.reload();
+      }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
@@ -174,7 +178,9 @@ export default function MemberManagement({
       setSuccess("Role updated successfully!");
 
       // Refresh the page to reflect the change
-      window.location.reload();
+      if (typeof window !== "undefined") {
+        window.location.reload();
+      }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
