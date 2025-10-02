@@ -5,7 +5,7 @@ export function formatCurrency(amount: number, currencyCode: string = 'USD', loc
       style: 'currency',
       currency: currencyCode,
     }).format(amount);
-  } catch (error) {
+  } catch {
     // Fallback if currency/locale is not supported
     return `${currencyCode} ${amount.toFixed(2)}`;
   }
@@ -15,6 +15,7 @@ export function formatCurrency(amount: number, currencyCode: string = 'USD', loc
 export function formatDateTime(date: Date | string, timezone: string = 'UTC', locale: string = 'en-US'): string {
   try {
     const dateObj = typeof date === 'string' ? new Date(date) : date;
+    if (Number.isNaN(dateObj.getTime())) return new Date().toLocaleString();
     return new Intl.DateTimeFormat(locale, {
       timeZone: timezone,
       year: 'numeric',
@@ -23,7 +24,7 @@ export function formatDateTime(date: Date | string, timezone: string = 'UTC', lo
       hour: '2-digit',
       minute: '2-digit',
     }).format(dateObj);
-  } catch (error) {
+  } catch {
     // Fallback if timezone is not supported
     const dateObj = typeof date === 'string' ? new Date(date) : date;
     return dateObj.toLocaleDateString();
@@ -40,7 +41,7 @@ export function getCurrentTime(timezone: string = 'UTC', locale: string = 'en-US
       second: '2-digit',
       timeZoneName: 'short',
     }).format(new Date());
-  } catch (error) {
+  } catch {
     // Fallback
     return new Date().toLocaleTimeString();
   }
@@ -80,18 +81,12 @@ export function isValidLocale(locale: string): boolean {
 }
 
 // Get relative time (e.g., "2 hours ago", "in 3 days")
-export function getRelativeTime(date: Date | string, timezone: string = 'UTC', locale: string = 'en-US'): string {
+export function getRelativeTime(date: Date | string, _timezone: string = 'UTC', locale: string = 'en-US'): string {
   try {
     const dateObj = typeof date === 'string' ? new Date(date) : date;
-    const now = new Date();
-    
-    // Convert both dates to the same timezone for comparison
-    const formatter = new Intl.DateTimeFormat(locale, { timeZone: timezone });
-    const targetTime = new Date(formatter.format(dateObj));
-    const currentTime = new Date(formatter.format(now));
-    
+    if (Number.isNaN(dateObj.getTime())) return new Date().toLocaleDateString();
     const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
-    const diffInSeconds = (targetTime.getTime() - currentTime.getTime()) / 1000;
+    const diffInSeconds = Math.round((dateObj.getTime() - Date.now()) / 1000);
     
     if (Math.abs(diffInSeconds) < 60) {
       return rtf.format(Math.round(diffInSeconds), 'second');
@@ -102,7 +97,7 @@ export function getRelativeTime(date: Date | string, timezone: string = 'UTC', l
     } else {
       return rtf.format(Math.round(diffInSeconds / 86400), 'day');
     }
-  } catch (error) {
+  } catch {
     // Fallback
     const dateObj = typeof date === 'string' ? new Date(date) : date;
     return dateObj.toLocaleDateString();
