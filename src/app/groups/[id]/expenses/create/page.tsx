@@ -11,15 +11,18 @@ interface User {
   email: string | null;
 }
 
+interface GroupMember {
+  id: string;
+  user: User;
+  role: string;
+  status: "ACTIVE" | "INVITED" | "LEFT";
+}
+
 interface Group {
   id: string;
   name: string;
   currency: string;
-  members: Array<{
-    id: string;
-    user: User;
-    role: string;
-  }>;
+  members: GroupMember[];
 }
 
 interface Participant {
@@ -429,7 +432,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
         // Include both active/invited members AND pending invitations
         const memberParticipants = groupData.members
           .filter(
-            (member: any) =>
+            (member: GroupMember) =>
               member.status === "ACTIVE" || member.status === "INVITED"
           )
           .map(
@@ -450,11 +453,11 @@ export default function CreateGroupExpensePage({ params }: Props) {
         // Add invitation-only users (not yet registered members)
         const invitationParticipants = invitationsData
           .filter(
-            (invitation: any) =>
+            (invitation: InvitationData) =>
               // Only include invitations for emails not already registered as members
-              !memberParticipants.find((m: any) => m.email === invitation.email)
+              !memberParticipants.find((m: Participant) => m.email === invitation.email)
           )
-          .map((invitation: any) => ({
+          .map((invitation: InvitationData) => ({
             id: invitation.email, // Use email as ID for invitations
             name: invitation.email,
             email: invitation.email,
@@ -471,7 +474,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
         // Initialize with current user as payer and participant
         if (session?.user?.email) {
           const currentUser = groupData.members.find(
-            (m: { id: string; user: User; role: string }) =>
+            (m: GroupMember) =>
               m.user.email === session.user.email && m.status === "ACTIVE"
           );
           if (currentUser) {
@@ -500,7 +503,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
     }
 
     fetchGroup();
-  }, [groupId, session?.user?.email]);
+  }, [groupId, session?.user?.email, amount]);
 
   // Update splits when participants change
   useEffect(() => {
@@ -529,7 +532,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
                   : undefined,
             };
       })
-      .filter(Boolean);
+      .filter(split => split !== null) as ExpenseSplit[];
     setSplits(newSplits);
   }, [selectedParticipants, splitMethod, allParticipants]);
 
@@ -630,7 +633,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
         }))
       );
     }
-  }, [amount, splits.length, splitMethod, isItemized]);
+  }, [amount, splits.length, splitMethod, isItemized, splits]);
 
   // Auto-calculate payers amount when amount/payers changes
   useEffect(() => {
@@ -1030,7 +1033,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
                           </span>
                         )}
                         {participant.type === "member" &&
-                          (participant as any).status === "INVITED" && (
+                          (participant as Participant & { status?: string }).status === "INVITED" && (
                             <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
                               Pending
                             </span>

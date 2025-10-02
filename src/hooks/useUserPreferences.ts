@@ -261,7 +261,7 @@ export function useUserPreferences() {
       });
       return acc;
     }, {} as Record<string, NotificationWithSettings[]>);
-  }, [preferences?.notificationTemplates, preferences?.notificationSettings]);
+  }, [preferences?.notificationTemplates, getNotificationSetting]);
 
   // Theme-specific utilities
   const isDarkMode = () => {

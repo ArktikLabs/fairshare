@@ -55,10 +55,10 @@ export async function POST(
     const { token } = await params;
 
     // Validate invitation token and check permissions
-    const invitation = await prisma.groupInvitation.findFirst({
+    const invitation = await prisma.groupMember.findFirst({
       where: {
-        token,
-        isActive: true,
+        inviteToken: token,
+        status: "INVITED",
         expiresAt: {
           gt: new Date(),
         },

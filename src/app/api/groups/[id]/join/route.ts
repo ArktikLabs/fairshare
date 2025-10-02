@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
 import { acceptGroupInvitation } from "@/lib/ghost-users";
 
 // POST /api/groups/[id]/join?token=<inviteToken> - Join a group via invitation

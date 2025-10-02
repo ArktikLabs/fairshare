@@ -161,7 +161,7 @@ export async function POST(
 
     // Use Ghost Users system for all invitations
     let email = validatedData.email;
-    let userId = validatedData.userId;
+    const userId = validatedData.userId;
 
     // If userId is provided, get the user's email
     if (userId && !email) {
@@ -193,9 +193,7 @@ export async function POST(
       });
 
       // TODO: Send email invitation here
-      console.log(
-        `User invited to group: ${email} (${groupMember.user.status === 'GHOST' ? 'new ghost user' : 'existing user'})`
-      );
+      console.log(`User invited to group: ${email}`);
 
       const inviteLink = groupMember.inviteToken
         ? `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/invite/${groupMember.inviteToken}`

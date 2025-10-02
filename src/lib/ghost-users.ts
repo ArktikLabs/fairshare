@@ -12,7 +12,7 @@ import { UserStatus, MemberStatus } from '@prisma/client';
  * Create or get a ghost user for an email address
  * Used when inviting someone who may not have a FairShare account
  */
-export async function createOrGetGhostUser(email: string, invitedBy?: string) {
+export async function createOrGetGhostUser(email: string, _invitedBy?: string) {
   // Check if user already exists
   let user = await prisma.user.findUnique({
     where: { email }
@@ -83,6 +83,11 @@ export async function inviteUserToGroup({
           expiresAt: new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000),
           inviteToken: generateInviteToken(),
           role,
+        },
+        include: {
+          user: true,
+          group: true,
+          inviter: true,
         }
       });
     } else {
@@ -95,6 +100,11 @@ export async function inviteUserToGroup({
           expiresAt: new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000),
           inviteToken: generateInviteToken(),
           role,
+        },
+        include: {
+          user: true,
+          group: true,
+          inviter: true,
         }
       });
     }

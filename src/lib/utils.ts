@@ -142,7 +142,6 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
  * Deep clone an object
  */
 export function deepClone<T>(obj: T): T {
-  // @ts-ignore structuredClone is available in modern runtimes
   if (typeof structuredClone === 'function') return structuredClone(obj);
   return JSON.parse(JSON.stringify(obj));
 }

@@ -147,23 +147,31 @@ async function resolveUser(
 
       // If this is for a group expense, add the user to the group
       if (groupId) {
-        // Check if there's an existing invitation for this email
-        const invitation = await prisma.groupInvitation.findFirst({
+        // Check if user is already a member or has an active invitation
+        const existingMember = await prisma.groupMember.findFirst({
           where: {
             groupId,
-            email: identifier.email,
-            expiresAt: { gt: new Date() },
+            user: {
+              email: identifier.email,
+            },
+            status: { in: ["INVITED", "ACTIVE"] },
+          },
+          include: {
+            user: true,
           },
         });
 
-        // Add user to group with appropriate role
-        await prisma.groupMember.create({
-          data: {
-            groupId,
-            userId: user.id,
-            role: invitation?.role || "MEMBER",
-          },
-        });
+        // Add user to group if not already a member
+        if (!existingMember) {
+          await prisma.groupMember.create({
+            data: {
+              groupId,
+              userId: user.id,
+              role: "MEMBER",
+              status: "ACTIVE", // Auto-accept for expense-based additions
+            },
+          });
+        }
       }
     }
 

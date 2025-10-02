@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function InvitationError() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -19,12 +21,12 @@ export default function InvitationError() {
         </p>
         
         <div className="space-y-3">
-          <a
+          <Link
             href="/"
             className="block w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
           >
             Go to Home
-          </a>
+          </Link>
           
           <a
             href="/auth/signin"

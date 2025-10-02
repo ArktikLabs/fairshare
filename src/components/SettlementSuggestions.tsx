@@ -1,12 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { 
-  formatSettlementAmount, 
-  getSettlementSummary, 
+import {
+  formatSettlementAmount,
+  getSettlementSummary,
   getUserSettlements,
-  UserBalance,
-  Settlement,
   GroupSettlements
 } from "../lib/settlement-utils";
 

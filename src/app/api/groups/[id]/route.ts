@@ -223,7 +223,7 @@ export async function DELETE(
     await prisma.$transaction(async (tx) => {
       await tx.group.update({
         where: { id: groupId },
-        data: { status: "LEFT" },
+        data: { isActive: false },
       });
 
       await tx.groupMember.updateMany({
