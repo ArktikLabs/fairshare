@@ -81,6 +81,7 @@ export function isValidLocale(locale: string): boolean {
 }
 
 // Get relative time (e.g., "2 hours ago", "in 3 days")
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function getRelativeTime(date: Date | string, _timezone: string = 'UTC', locale: string = 'en-US'): string {
   try {
     const dateObj = typeof date === 'string' ? new Date(date) : date;

@@ -12,6 +12,7 @@ import { UserStatus, MemberStatus } from '@prisma/client';
  * Create or get a ghost user for an email address
  * Used when inviting someone who may not have a FairShare account
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function createOrGetGhostUser(email: string, _invitedBy?: string) {
   // Check if user already exists
   let user = await prisma.user.findUnique({

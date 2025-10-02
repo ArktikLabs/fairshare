@@ -229,23 +229,23 @@ export function useUserPreferences() {
   };
 
   // Helper functions
-  const getNotificationSetting = (templateKey: string): { email: boolean; push: boolean } => {
+  const getNotificationSetting = useCallback((templateKey: string): { email: boolean; push: boolean } => {
     if (!preferences?.notificationSettings) {
       return { email: true, push: true };
     }
-    
+
     const setting = preferences.notificationSettings.find(s => s.templateKey === templateKey);
     if (setting) {
       return { email: setting.emailEnabled, push: setting.pushEnabled };
     }
-    
+
     // Fallback to template defaults
     const template = preferences.notificationTemplates?.find(t => t.key === templateKey);
     return {
       email: template?.defaultEmail ?? true,
       push: template?.defaultPush ?? true,
     };
-  };
+  }, [preferences?.notificationSettings, preferences?.notificationTemplates]);
 
   const getNotificationsByCategory = useCallback(() => {
     if (!preferences?.notificationTemplates) return {};
