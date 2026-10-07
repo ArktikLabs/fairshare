@@ -9,7 +9,7 @@ import { loadUserOverview } from "../overview";
 import { formatCurrency } from "../utils";
 import { emailLayout } from "./render";
 import { enqueue } from "./outbox";
-import { manageUrl, unsubscribeUrl } from "./dispatch";
+import { manageUrl, oneClickUrl, unsubscribeUrl } from "./dispatch";
 
 const WEEK = 7 * 24 * 3600_000;
 
@@ -84,5 +84,5 @@ async function buildDigest(userId: string, since: Date) {
       reason: "You get this weekly summary because you turned it on.",
     },
   });
-  return { subject: "Your week on FairShare", text, html, headers: { "List-Unsubscribe": `<${unsubscribeUrl(userId, "digest")}>` } };
+  return { subject: "Your week on FairShare", text, html, headers: { "List-Unsubscribe": `<${oneClickUrl(unsubscribeUrl(userId, "digest"))}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } };
 }

@@ -1,0 +1,9 @@
+[Unit]
+Description=FairShare prod: cron tick (notifications outbox, digests, recurring expenses, auto reminders)
+After=fairshare-web.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/home/ubuntu/docker-apps/fairshare-prod/web.env
+# CRON_SECRET comes from web.env; the endpoint answers 401 without it.
+ExecStart=/bin/sh -c 'curl -fsS --max-time 280 -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" -d "{}" http://127.0.0.1:3600/api/cron/run'

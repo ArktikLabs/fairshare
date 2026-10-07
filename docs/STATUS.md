@@ -85,19 +85,70 @@
   `/activity` (nav + mobile tab) and a per-group section; API
   `GET /api/activity?groupId=&cursor=&limit=` returns `{ items, nextCursor }`.
 
+- **Batch 3**
+  - Money: amounts use each currency's minor unit (`Intl` en-US, IDR/JPY/KRW
+    without decimals). Storage stays in cents; zero-decimal currencies are
+    split in whole units (`minorUnitCents`, `allocateInUnits`).
+  - Notifications (`src/lib/notify/`): `recordActivity()` schedules
+    `dispatchActivity()` after the response (never blocks or fails it). It
+    picks recipients (never the actor; edits only notify people whose share
+    changed), checks per-user, per-event, per-channel preferences
+    (`UserNotificationSetting`, Account > Notifications) and queues rows in the
+    `Notification` outbox (status, attempts, lastError, dedupeKey). Sending
+    retries with backoff (5 attempts). Weekly email digest option
+    (`UserPreferences.emailDigest`).
+  - Email via Resend (`mailer.ts`): HTML + text, `List-Unsubscribe` header and a
+    signed one-click unsubscribe link per event type (`/unsubscribe?t=`).
+  - WhatsApp via WAHA (`notify/whatsapp-waha.ts`): `POST /api/sendText`
+    `{session, chatId: "<digits>@c.us", text}` with `X-Api-Key`, plus
+    `GET /api/contacts/check-exists`. Disabled (UI says unavailable) without
+    `WAHA_URL`/`WAHA_API_KEY`. Phone number in Account (country selector, E.164),
+    verified with a 6-digit code over WhatsApp (hashed, 10 min, 5 tries,
+    60 s between sends, 5 per day). Nothing else goes to unverified numbers.
+  - Payment reminders: "Remind" on settle-up suggestions (creditor -> debtor),
+    once per 24 h per pair per group (`PaymentReminder`), recorded in activity.
+    Optional weekly automatic reminders per group (group settings, off).
+  - Cron: `POST /api/cron/run` with `Authorization: Bearer $CRON_SECRET`:
+    recurring expenses, auto reminders, digests, outbox. Idempotent (unique
+    keys). Body `{ "now": "..." }` fakes the clock outside production.
+    `ops/fairshare-cron.{service,timer}` every 5 min (not installed).
+  - Recurring expenses: Repeat (weekly, 2 weeks, monthly, yearly, end date) on
+    create/edit; `RecurringExpense` template; occurrence n is computed from the
+    start date (Jan 31 -> Feb 28/29 -> Mar 31) in the owner's time zone; created
+    as the owner, unique per (template, date). Pause / resume / stop on the
+    expense page; list in group settings.
+  - Friends: hidden DIRECT group per pair (`Group.kind`, `directKey`), excluded
+    from group lists. `/friends` (net per friend across direct and shared
+    groups, add by email which invites if no account), `/friends/[id]`
+    (balance, settle up, remind, shared expenses, add expense). Desktop nav
+    link; on mobile a Groups | Friends switch.
+  - Multi-currency: an expense can be in another currency; stored original
+    amount + currency, rate, rate date, source; rows converted to the group
+    currency (largest remainder in the group's minor unit). Rates from
+    Frankfurter (ECB) then open.er-api.com, cached per day in `ExchangeRate`;
+    manual rate when both fail. Detail shows both amounts.
+  - CSV: `/api/groups/[id]/export.csv` (share column per member, payments
+    section) and `/api/expenses/export.csv` (my expenses with my share). BOM,
+    RFC 4180, formula-injection safe. Buttons in group settings and /expenses.
+  - `/insights`: my share by month and category per currency, group and date
+    filters, CSS bar charts with a table fallback. In the account menu.
+  - Activity: "Budi paid you IDR 100,000" no longer repeats "you received".
+
 ## Checks
 
 - `pnpm test`: unit tests for split and balance math, the add-expense form
   helpers (`split-form.ts`, including edit-mode prefill), currencies,
   categories, overview totals, simplify debts on/off, edit recompute and diff,
-  permission rules and activity lines (`batch2.test.ts`)
+  permission rules and activity lines (`batch2.test.ts`), recurrence dates,
+  currency conversion, WAHA adapter (mocked fetch), notification routing,
+  unsubscribe tokens, insights and minor-unit formatting (`batch3.test.ts`),
+  CSV escaping (`batch3-csv.test.ts`)
 - `pnpm typecheck`, `pnpm lint`, `next build`: clean
 
 ## Not done / next
 
-- Notifications (email / WhatsApp) hooked into `recordActivity()`, reminders
-- Recurring expenses, 1:1 friends, currency conversion between groups
-- Export (CSV) of a group's history, charts
+- WhatsApp has only been tested against a mocked WAHA; first real use needs a
+  WAHA server and `WAHA_*` env
 - Existing expenses from before activity tracking have no history (no backfill)
 
 ## Configuration
@@ -105,3 +156,11 @@
 - `UPLOAD_DIR`: where receipt images are written (default `./uploads`). Must be
   persistent and outside `public/`; in production
   `~/docker-apps/fairshare-prod/uploads`.
+- `CRON_SECRET` (16+ chars): bearer token for `POST /api/cron/run`. Without it
+  the endpoint answers 401 and nothing runs in the background (notifications
+  are still sent right after each action).
+- `CRON_ALLOW_FAKE_NOW=1`: lets the cron body fake the clock in production
+  (testing only).
+- `WAHA_URL`, `WAHA_API_KEY`, `WAHA_SESSION` (default `default`): WhatsApp via
+  WAHA. Leave empty to disable WhatsApp.
+- `RESEND_API_KEY`, `EMAIL_FROM`: email (without them, mail is logged in dev).

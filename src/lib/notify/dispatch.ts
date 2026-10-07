@@ -21,6 +21,11 @@ export function unsubscribeUrl(userId: string, event: string, channel: "email" |
   return appUrl(`/unsubscribe?t=${encodeURIComponent(makeUnsubscribeToken({ u: userId, e: event, c: channel }))}`);
 }
 
+/** RFC 8058 one-click target (mail clients POST here; the page link is for people). */
+export function oneClickUrl(pageUrl: string) {
+  return pageUrl.replace("/unsubscribe?", "/api/unsubscribe?");
+}
+
 const REASON: Record<NotifyEvent, string> = {
   expense_added: "You get this because an expense you are on was added.",
   expense_changed: "You get this because an expense you are on changed.",
@@ -98,7 +103,7 @@ async function buildMessages(a: ActivityLike & { id: string }): Promise<QueuedMe
           subject: r.subject,
           text: r.text,
           html: r.html,
-          headers: { "List-Unsubscribe": `<${unsub}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+          headers: { "List-Unsubscribe": `<${oneClickUrl(unsub)}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
         },
       });
     }
@@ -144,7 +149,8 @@ export async function dispatchActivity(activityId: string, opts: { send?: boolea
 /** Cron: fan out activities a crash or restart left behind (older than 1 minute). */
 export async function dispatchPending(limit = 200): Promise<number> {
   const rows = await prisma.activity.findMany({
-    where: { notifiedAt: null, createdAt: { lt: new Date(Date.now() - 60_000) } },
+    // Never older than 2 days: stale news is worse than none
+    where: { notifiedAt: null, createdAt: { lt: new Date(Date.now() - 60_000), gt: new Date(Date.now() - 2 * 86_400_000) } },
     orderBy: { createdAt: "asc" },
     take: limit,
     select: { id: true },

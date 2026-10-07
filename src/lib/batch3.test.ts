@@ -9,6 +9,7 @@ import { formatCurrency } from "./utils";
 import { allocateInUnits, calculateSplit } from "./money";
 import { currencyDigits, minorUnitCents } from "./currencies";
 import { amountToInput, parseCents } from "./split-form";
+import { aggregate, monthsBetween } from "./insights";
 
 describe("recurrence date maths", () => {
   it("clamps month ends (Jan 31 -> Feb 28/29) without drifting", () => {
@@ -248,5 +249,33 @@ describe("notification routing", () => {
     expect(readUnsubscribeToken(t, "other")).toBeNull();
     expect(readUnsubscribeToken(t.slice(0, -2) + "xx", "k")).toBeNull();
     expect(readUnsubscribeToken("garbage", "k")).toBeNull();
+  });
+});
+
+describe("insights aggregation", () => {
+  it("lists every month in range", () => {
+    expect(monthsBetween("2025-11-15", "2026-02-01")).toEqual(["2025-11", "2025-12", "2026-01", "2026-02"]);
+  });
+  it("sums my share by category and month, per currency", () => {
+    const d = (s: string) => new Date(`${s}T00:00:00Z`);
+    const out = aggregate(
+      [
+        { currency: "IDR", category: "FOOD_DRINK", date: d("2026-01-05"), cents: 5000000 },
+        { currency: "IDR", category: "FOOD_DRINK", date: d("2026-02-05"), cents: 2500000 },
+        { currency: "IDR", category: null, date: d("2026-02-06"), cents: 1000000 },
+        { currency: "USD", category: "TRAVEL", date: d("2026-01-09"), cents: 1250 },
+        { currency: "USD", category: "TRAVEL", date: d("2026-01-09"), cents: 0 },
+      ],
+      "2026-01-01",
+      "2026-03-31"
+    );
+    expect(out.map((c) => c.currency)).toEqual(["IDR", "USD"]);
+    expect(out[0].totalCents).toBe(8500000);
+    expect(out[0].byCategory).toEqual([
+      { category: "FOOD_DRINK", label: "Food & drink", cents: 7500000 },
+      { category: "OTHER", label: "Other", cents: 1000000 },
+    ]);
+    expect(out[0].byMonth.map((m) => m.cents)).toEqual([5000000, 3500000, 0]);
+    expect(out[1].expenseCount).toBe(1);
   });
 });
