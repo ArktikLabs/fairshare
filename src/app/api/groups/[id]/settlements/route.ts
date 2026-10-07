@@ -1,3 +1,4 @@
+import { minorUnitCents } from "@/lib/currencies";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
@@ -117,6 +118,13 @@ export async function POST(
       );
     }
 
+    // Whole units for zero-decimal currencies (IDR 13,333.33 -> 13,333)
+    const unit = minorUnitCents(ledger.currency);
+    const amountCents = Math.round(toCents(amount) / unit) * unit;
+    if (amountCents <= 0) {
+      return NextResponse.json({ error: "Amount must be greater than 0" }, { status: 400 });
+    }
+
     const names = await userNames([fromUserId, toUserId]);
     const settlement = await prisma.$transaction(async (tx) => {
       const s = await tx.settlement.create({
@@ -124,7 +132,7 @@ export async function POST(
           groupId,
           payerId: fromUserId,
           payeeId: toUserId,
-          amount: toCents(amount) / 100,
+          amount: amountCents / 100,
           method,
           description,
           status: "CONFIRMED",
@@ -139,7 +147,7 @@ export async function POST(
           groupId,
           settlementId: s.id,
           payload: {
-            amount: toCents(amount),
+            amount: amountCents,
             fromId: fromUserId,
             fromName: names.get(fromUserId),
             toId: toUserId,

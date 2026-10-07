@@ -1,3 +1,4 @@
+import { minorUnitCents } from "@/lib/currencies";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
@@ -46,7 +47,12 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
     if (s.status !== "CONFIRMED") throw new HttpError(400, "Restore this payment before editing it");
     const data = EditSchema.parse(await request.json());
     const before = toCents(Number(s.amount));
-    const after = data.amount !== undefined ? toCents(data.amount) : before;
+    let after = before;
+    if (data.amount !== undefined) {
+      const g = await prisma.group.findUnique({ where: { id: groupId }, select: { currency: true } });
+      const unit = minorUnitCents(g?.currency);
+      after = Math.round(toCents(data.amount) / unit) * unit;
+    }
     if (after <= 0) throw new HttpError(400, "Amount must be greater than 0");
     await prisma.$transaction(async (tx) => {
       await tx.settlement.update({

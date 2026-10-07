@@ -4,6 +4,7 @@
 
 import { fromCents, toCents } from "./money";
 import { formatCurrency } from "./utils";
+import { minorUnitCents } from "./currencies";
 
 export interface UserBalance {
   userId: string;
@@ -244,9 +245,12 @@ export function calculateGroupSettlements(
 ): GroupSettlements {
   const balances = calculateGroupBalances(members, expenses, payments, extraUsers);
   const simplify = options.simplify ?? true;
-  const suggestedSettlements = simplify
-    ? optimizeSettlements(balances, currency)
-    : pairwiseSettlements(balances, expenses, payments, currency);
+  // Zero-decimal currencies: never suggest paying less than one whole unit
+  // (older data may hold fractions, e.g. IDR 0.33 left from a 3-way split)
+  const minCents = minorUnitCents(currency);
+  const suggestedSettlements = (
+    simplify ? optimizeSettlements(balances, currency) : pairwiseSettlements(balances, expenses, payments, currency)
+  ).filter((s) => toCents(s.amount) >= minCents);
 
   return {
     groupId,

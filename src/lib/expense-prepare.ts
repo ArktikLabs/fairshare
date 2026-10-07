@@ -9,7 +9,7 @@ import { computeExpenseRows, type ComputedRows, type ResolvedExpenseInput } from
 import { convertRows } from "./fx";
 import { getRate } from "./fx-rates";
 import { getCurrency, minorUnitCents } from "./currencies";
-import { toCents, fromCents } from "./money";
+import { calculateSplit, toCents, fromCents } from "./money";
 import { HttpError } from "./expense-write";
 import type { Frequency } from "./recurrence";
 
@@ -93,9 +93,10 @@ export async function prepareExpense(
     rateDay = r.day;
     source = r.source;
   }
-  const converted = convertRows(rows, toCents(input.amount), rate, minorUnitCents(groupCurrency));
+  const unit = minorUnitCents(groupCurrency);
+  const converted = convertRows(rows, toCents(input.amount), rate, unit);
   return {
-    rows: converted.rows,
+    rows: resplitConverted(converted.rows, fromCents(converted.totalCents), unit),
     amount: fromCents(converted.totalCents),
     fx: {
       originalAmount: new Decimal(input.amount),
@@ -104,6 +105,29 @@ export async function prepareExpense(
       rateDate: new Date(`${rateDay}T00:00:00.000Z`),
       rateSource: source,
     },
+  };
+}
+
+/**
+ * Converting rounded shares proportionally keeps their rounding error (USD
+ * 3.33 / 3.33 / 3.34 becomes IDR 54,114 / 54,114 / 54,277). For equal,
+ * percentage and share splits, split the converted amount again instead, so
+ * an equal split stays equal in the group currency. Exact amounts stay
+ * proportional.
+ */
+function resplitConverted(rows: ComputedRows, total: number, unit: number): ComputedRows {
+  const strip = <T extends { amount: number }>(s: T) => ({ ...s, amount: undefined });
+  if (rows.items.length === 0) {
+    if (rows.splitMethod === "EXACT" || rows.splits.length === 0) return rows;
+    return { ...rows, splits: calculateSplit(total, rows.splits.map(strip), rows.splitMethod, unit) };
+  }
+  return {
+    ...rows,
+    items: rows.items.map((it) =>
+      it.splitMethod === "EXACT" || it.splits.length === 0
+        ? it
+        : { ...it, splits: calculateSplit(it.amount, it.splits.map(strip), it.splitMethod, unit) }
+    ),
   };
 }
 
