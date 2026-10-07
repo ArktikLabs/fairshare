@@ -1,0 +1,9 @@
+[Unit]
+Description=FairShare prod: nightly pg_dump
+
+[Timer]
+OnCalendar=*-*-* 03:07
+Persistent=true
+
+[Install]
+WantedBy=timers.target

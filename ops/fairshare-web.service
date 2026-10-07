@@ -1,0 +1,13 @@
+[Unit]
+Description=FairShare - Next.js on 127.0.0.1:3600, served at https://fairshare.arktik.id
+After=network.target
+
+[Service]
+WorkingDirectory=%h/apps/fairshare
+EnvironmentFile=/home/ubuntu/docker-apps/fairshare-prod/web.env
+Environment=HOSTNAME=127.0.0.1 PORT=3600 NODE_ENV=production
+ExecStart=%h/apps/fairshare/node_modules/.bin/next start -p 3600 -H 127.0.0.1
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,14 @@
+# FairShare (expense splitter) - systemd --user fairshare-web on 127.0.0.1:3600.
+# Repo ArktikLabs/fairshare, live clone ~/apps/fairshare, env ~/docker-apps/fairshare-prod.
+# Preview: noindex until launch.
+fairshare.arktik.id {
+	encode gzip
+	header {
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Content-Type-Options "nosniff"
+		Strict-Transport-Security "max-age=31536000"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+		X-Robots-Tag "noindex, nofollow"
+	}
+	reverse_proxy 127.0.0.1:3600
+}
