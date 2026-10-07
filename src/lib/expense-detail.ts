@@ -8,6 +8,9 @@ import { toCents } from "./money";
 import type { StoredExpenseForForm, StoredSplit } from "./split-form";
 import { withinRestoreWindow } from "./permissions";
 import { calendarDay } from "./expense-compute";
+import { allocateInUnits } from "./money";
+import { minorUnitCents } from "./currencies";
+import { listRecurring, type RecurringView } from "./recurring";
 
 export interface DetailPerson {
   id: string;
@@ -38,6 +41,9 @@ export interface ExpenseDetail {
   updatedBy: DetailPerson | null;
   deleted: { at: string | null; by: DetailPerson | null; restorable: boolean } | null;
   hasReceipt: boolean;
+  /** Paid in another currency */
+  fx: { originalCents: number; originalCurrency: string; rate: number; rateDate: string | null; source: string | null } | null;
+  recurring: RecurringView | null;
   canManage: boolean;
   archived: boolean;
   comments: CommentRow[];
@@ -96,6 +102,10 @@ export async function loadExpenseDetail(id: string, userId: string): Promise<Exp
     })
   );
 
+  const recurringList = await listRecurring({
+    OR: [{ sourceExpenseId: id }, ...(e.recurringId ? [{ id: e.recurringId }] : [])],
+    status: { not: "STOPPED" },
+  });
   const [comments, history] = await Promise.all([
     listComments(id),
     prisma.activity.findMany({
@@ -113,6 +123,17 @@ export async function loadExpenseDetail(id: string, userId: string): Promise<Exp
       percentage: s.percentage === null ? null : Number(s.percentage),
       shares: s.shares,
     }));
+
+  // Foreign-currency expenses open in the edit form in their own currency:
+  // stored group-currency rows are scaled back onto the original total
+  // (exact for even splits, proportional otherwise).
+  const fxCur = e.originalCurrency && e.originalAmount && e.exchangeRate ? e.originalCurrency : null;
+  const origTotal = fxCur ? toCents(Number(e.originalAmount)) : 0;
+  const back = <T extends { amount: number }>(rows: T[], total = origTotal): T[] => {
+    if (!fxCur || rows.length === 0) return rows;
+    const parts = allocateInUnits(total, rows.map((r) => r.amount), minorUnitCents(fxCur));
+    return rows.map((r, i) => ({ ...r, amount: parts[i] }));
+  };
 
   const myPaid = e.payers.filter((p) => p.userId === userId).reduce((s, p) => s + toCents(Number(p.amountPaid)), 0);
 
@@ -145,6 +166,16 @@ export async function loadExpenseDetail(id: string, userId: string): Promise<Exp
       ? { at: e.deletedAt?.toISOString() ?? null, by: person(e.deletedById), restorable: withinRestoreWindow(e.deletedAt) && !archived }
       : null,
     hasReceipt: Boolean(e.receiptKey),
+    fx: fxCur
+      ? {
+          originalCents: origTotal,
+          originalCurrency: fxCur,
+          rate: Number(e.exchangeRate),
+          rateDate: e.rateDate ? e.rateDate.toISOString().slice(0, 10) : null,
+          source: e.rateSource,
+        }
+      : null,
+    recurring: recurringList[0] ?? null,
     canManage,
     archived,
     comments,
@@ -159,21 +190,24 @@ export async function loadExpenseDetail(id: string, userId: string): Promise<Exp
       payload: (h.payload ?? {}) as ActivityPayload,
       createdAt: h.createdAt.toISOString(),
     })),
-    stored: {
-      description: e.description,
-      amount: toCents(Number(e.amount)),
-      date: calendarDay(e.date),
-      category: e.category,
-      notes: e.notes,
-      splitMethod: e.splitMethod,
-      payers: e.payers.map((p) => ({ userId: p.userId, amount: toCents(Number(p.amountPaid)) })),
-      splits: stored(e.splits),
-      items: e.items.map((i) => ({
-        name: i.name,
-        amount: toCents(Number(i.amount)),
-        splitMethod: i.splitMethod,
-        splits: stored(i.splits),
-      })),
-    },
+    stored: (() => {
+      const items = back(e.items.map((i) => ({ name: i.name, amount: toCents(Number(i.amount)), splitMethod: i.splitMethod, splits: stored(i.splits) })));
+      return {
+        description: e.description,
+        amount: fxCur ? origTotal : toCents(Number(e.amount)),
+        date: calendarDay(e.date),
+        category: e.category,
+        notes: e.notes,
+        splitMethod: e.splitMethod,
+        payers: back(e.payers.map((p) => ({ userId: p.userId, amount: toCents(Number(p.amountPaid)) }))),
+        splits: back(stored(e.splits)),
+        items: items.map((it) => ({ ...it, splits: back(it.splits, it.amount) })),
+        currency: fxCur,
+        exchangeRate: fxCur ? Number(e.exchangeRate) : null,
+        repeat: recurringList[0] && recurringList[0].sourceExpenseId === e.id
+          ? { frequency: recurringList[0].frequency, endDate: recurringList[0].endDate }
+          : null,
+      };
+    })(),
   };
 }

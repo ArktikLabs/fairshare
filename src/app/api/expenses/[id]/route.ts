@@ -4,7 +4,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { CATEGORY_VALUES } from "@/lib/categories";
-import { computeExpenseRows, diffExpense, expenseImpact, summarizeExpense } from "@/lib/expense-compute";
+import { calendarDay, diffExpense, expenseImpact, summarizeExpense } from "@/lib/expense-compute";
 import {
   HttpError,
   clearExpenseRows,
@@ -16,6 +16,9 @@ import {
   writeExpenseRows,
 } from "@/lib/expense-write";
 import { recordActivity } from "@/lib/activity";
+import { NO_FX, fxPayload, parseExtras, prepareExpense, repeatFrequency, type PreparedExpense } from "@/lib/expense-prepare";
+import { syncRecurring } from "@/lib/recurring";
+import type { ResolvedExpenseInput } from "@/lib/expense-compute";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -77,9 +80,13 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
 
     // Resolve and compute outside the transaction (resolving can invite
     // placeholder users); nothing is written if the numbers do not add up.
-    let rows: ReturnType<typeof computeExpenseRows> | null = null;
+    let prepared: PreparedExpense | null = null;
+    let resolved: ResolvedExpenseInput | null = null;
     let data: ReturnType<typeof parseExpenseBody>["data"] | null = null;
     let meta: z.infer<typeof MetaSchema> | null = null;
+    const extras = parseExtras(raw);
+    const frequency = repeatFrequency(extras);
+    if (frequency && !expense.groupId) throw new HttpError(400, "Repeating expenses need a group");
     if (full) {
       const parsed = parseExpenseBody(raw);
       data = parsed.data;
@@ -92,19 +99,31 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
         ...expense.splits.map((s) => s.userId),
         ...expense.items.flatMap((i) => i.splits.map((s) => s.userId)),
       ]);
-      const resolved = await resolveExpenseInput(data, parsed.itemized, userId, expense.groupId, alreadyOn);
-      rows = computeExpenseRows(resolved);
+      resolved = await resolveExpenseInput(data, parsed.itemized, userId, expense.groupId, alreadyOn);
+      const day = data.date ? calendarDay(parseExpenseDate(data.date)) : calendarDay(expense.date);
+      // Amounts are in `currency` when sent, else in the group currency.
+      // Keeping the same currency and rate keeps the stored rate's date/source.
+      const sameRate =
+        extras.currency &&
+        extras.currency === expense.originalCurrency &&
+        extras.exchangeRate &&
+        expense.exchangeRate &&
+        Math.abs(extras.exchangeRate - Number(expense.exchangeRate)) < 1e-9;
+      prepared = await prepareExpense(resolved, expense.group?.currency ?? "USD", extras, day);
+      if (sameRate) prepared.fx = { ...prepared.fx, rateDate: expense.rateDate, rateSource: expense.rateSource };
     } else {
       meta = MetaSchema.parse(raw);
     }
 
     await prisma.$transaction(async (tx) => {
-      if (rows && data) {
+      if (prepared && data) {
+        const rows = prepared.rows;
         await clearExpenseRows(tx, id);
         await tx.expense.update({
           where: { id },
           data: {
-            amount: new Decimal(data.amount),
+            amount: new Decimal(prepared.amount),
+            ...(prepared.fx.originalCurrency ? prepared.fx : NO_FX),
             description: data.description,
             date: data.date ? parseExpenseDate(data.date) : undefined,
             category: data.category,
@@ -141,10 +160,41 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
             actorId: userId,
             groupId: expense.groupId,
             expenseId: id,
-            payload: { description: after.description, amount: after.amount, impact: expenseImpact(after), changes },
+            payload: {
+              description: after.description,
+              amount: after.amount,
+              impact: expenseImpact(after),
+              previousImpact: expenseImpact(before),
+              changes,
+              ...(prepared ? fxPayload(prepared.fx) : {}),
+            },
           },
           tx
         );
+      }
+      if (expense.groupId && (frequency !== undefined || (resolved && data))) {
+        const cur = await tx.expense.findUniqueOrThrow({ where: { id }, select: { date: true, originalCurrency: true, exchangeRate: true, rateSource: true, description: true, category: true, notes: true } });
+        if (resolved) {
+          await syncRecurring(tx, {
+            expenseId: id,
+            groupId: expense.groupId,
+            ownerId: userId,
+            day: calendarDay(cur.date),
+            amountCents: after.amount,
+            template: {
+              input: resolved,
+              description: cur.description,
+              category: cur.category,
+              notes: cur.notes,
+              currency: cur.originalCurrency,
+              manualRate: cur.rateSource === "manual" && cur.exchangeRate ? Number(cur.exchangeRate) : null,
+            },
+            frequency,
+            endDate: extras.repeat ? extras.repeat.endDate ?? null : undefined,
+          });
+        } else if (frequency === null) {
+          await tx.recurringExpense.updateMany({ where: { sourceExpenseId: id, status: { not: "STOPPED" } }, data: { status: "STOPPED" } });
+        }
       }
     });
 

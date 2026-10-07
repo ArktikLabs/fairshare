@@ -43,11 +43,33 @@ export function allocateCents(totalCents: number, weights: number[]): number[] {
   return base;
 }
 
+/**
+ * Like allocateCents, but hands out whole `unit`s (e.g. unit = 100 for
+ * zero-decimal currencies such as IDR or JPY, so nobody gets a fraction of a
+ * rupiah). Any remainder below one unit (only for legacy totals that are not
+ * a whole number of units) goes to the first largest part. Always sums to
+ * exactly `totalCents`.
+ */
+export function allocateInUnits(totalCents: number, weights: number[], unit = 1): number[] {
+  if (unit <= 1) return allocateCents(totalCents, weights);
+  const units = Math.floor(totalCents / unit);
+  const leftover = totalCents - units * unit;
+  const parts = allocateCents(units, weights).map((u) => u * unit);
+  if (leftover > 0 && parts.length > 0) {
+    let max = 0;
+    parts.forEach((p, i) => p > parts[max] && (max = i));
+    parts[max] += leftover;
+  }
+  return parts;
+}
+
 /** Validate inputs for a split and return per-participant amounts. */
 export function calculateSplit(
   total: number,
   participants: SplitInput[],
-  method: SplitMethodName
+  method: SplitMethodName,
+  /** Allocation step in cents: 100 for zero-decimal currencies, else 1. */
+  unit = 1
 ): SplitResult[] {
   if (participants.length === 0) {
     throw new Error("At least one participant is required");
@@ -61,7 +83,7 @@ export function calculateSplit(
 
   switch (method) {
     case "EQUAL": {
-      const cents = allocateCents(totalCents, participants.map(() => 1));
+      const cents = allocateInUnits(totalCents, participants.map(() => 1), unit);
       return participants.map((p, i) => ({ ...p, amount: fromCents(cents[i]) }));
     }
     case "EXACT": {
@@ -78,7 +100,7 @@ export function calculateSplit(
       if (pct.some((x) => x < 0)) throw new Error("Percentages cannot be negative");
       const sum = pct.reduce((s, x) => s + x, 0);
       if (Math.abs(sum - 100) > 0.01) throw new Error("Sum of percentages must equal 100%");
-      const cents = allocateCents(totalCents, pct);
+      const cents = allocateInUnits(totalCents, pct, unit);
       return participants.map((p, i) => ({ ...p, amount: fromCents(cents[i]) }));
     }
     case "SHARES": {
@@ -86,7 +108,7 @@ export function calculateSplit(
       if (shares.some((s) => !Number.isInteger(s) || s <= 0)) {
         throw new Error("Shares must be positive whole numbers");
       }
-      const cents = allocateCents(totalCents, shares);
+      const cents = allocateInUnits(totalCents, shares, unit);
       return participants.map((p, i) => ({ ...p, amount: fromCents(cents[i]) }));
     }
     default:

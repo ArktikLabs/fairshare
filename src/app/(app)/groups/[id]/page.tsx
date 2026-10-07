@@ -15,6 +15,7 @@ import { BalancesCard, PaymentsCard, SettleUpCard } from "@/components/group/set
 import { MembersCard, type MemberRow } from "@/components/group/members-card";
 import { ActivityFeed } from "@/components/activity/activity-feed";
 import { loadFeedPage } from "@/lib/activity-feed";
+import { reminderCooldowns } from "@/lib/reminders";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -49,6 +50,10 @@ export default async function GroupDetailPage({ params }: Props) {
     },
   });
   if (!group) notFound();
+  if (group.kind === "DIRECT") {
+    const other = group.members.find((m) => m.userId !== userId);
+    redirect(other ? `/friends/${other.userId}` : "/friends");
+  }
 
   const me = group.members.find((m) => m.userId === userId)!;
   const isPendingInvite = me.status === "INVITED";
@@ -79,7 +84,7 @@ export default async function GroupDetailPage({ params }: Props) {
   }
 
   const archived = Boolean(group.archivedAt);
-  const [ledger, history, expensesRaw, expenseCount, feed] = await Promise.all([
+  const [ledger, history, expensesRaw, expenseCount, feed, cooldowns] = await Promise.all([
     loadGroupSettlements(group.id),
     loadPaymentHistory(group.id, 50, { viewerId: userId, isAdmin, archived }),
     prisma.expense.findMany({
@@ -90,6 +95,7 @@ export default async function GroupDetailPage({ params }: Props) {
     }),
     prisma.expense.count({ where: { groupId: group.id, isDeleted: false } }),
     loadFeedPage(userId, group.id, 8),
+    reminderCooldowns(group.id),
   ]);
   if (!ledger) notFound();
   const adminSet = new Set(isAdmin ? [group.id] : []);
@@ -173,6 +179,7 @@ export default async function GroupDetailPage({ params }: Props) {
             currentUserId={userId}
             isAdmin={isAdmin}
             readOnly={archived}
+            reminderCooldowns={cooldowns}
           />
           <Card>
             <CardHeader

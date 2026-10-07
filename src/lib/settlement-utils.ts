@@ -3,6 +3,7 @@
 // the group's currency units.
 
 import { fromCents, toCents } from "./money";
+import { formatCurrency } from "./utils";
 
 export interface UserBalance {
   userId: string;
@@ -261,14 +262,7 @@ export function calculateGroupSettlements(
  * Format currency amount for display
  */
 export function formatSettlementAmount(amount: number, currency: string): string {
-  // Fixed 2 decimals: amounts are stored in cents for every currency, and a
-  // fixed format renders identically on the server and in the browser.
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: currency || "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+  return formatCurrency(amount, currency || "USD");
 }
 
 /**

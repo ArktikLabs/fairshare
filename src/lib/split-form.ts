@@ -3,20 +3,48 @@
 // mirrors the server rules in money.ts, so "balanced" here means the server
 // will accept it.
 
-import { allocateCents, fromCents } from "./money";
+import { allocateCents, allocateInUnits, fromCents } from "./money";
 
 export type SplitMode = "EQUAL" | "EXACT" | "PERCENTAGE" | "SHARES" | "ADJUSTMENT";
 export type ItemSplitMode = Exclude<SplitMode, "ADJUSTMENT">;
 
-/** Parse a money string ("12", "12.5", "1,234.56") into cents; null if invalid. */
-export function parseCents(input: string | number | null | undefined): number | null {
+/**
+ * Parse a money string ("12", "12.5", "1,234.56") into cents; null if invalid.
+ * With `digits = 0` (IDR, JPY...) only whole amounts are accepted and both
+ * "," and "." are read as thousands separators ("900.000" = 900000).
+ */
+export function parseCents(input: string | number | null | undefined, digits: 0 | 2 = 2): number | null {
   if (input === null || input === undefined) return null;
-  const s = String(input).trim().replace(/,/g, "");
+  let s = String(input).trim();
+  if (digits === 0) {
+    if (/^-?\d{1,3}([.,]\d{3})+$/.test(s)) s = s.replace(/[.,]/g, "");
+    else if (/^-?\d+[.,]0{1,2}$/.test(s)) s = s.replace(/[.,]0+$/, "");
+    if (!/^-?\d+$/.test(s)) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n * 100 : null;
+  }
+  s = s.replace(/,/g, "");
   if (s === "") return null;
   if (!/^-?\d*(\.\d{0,2})?$/.test(s) || s === "-" || s === ".") return null;
   const n = Number(s);
   if (!Number.isFinite(n)) return null;
   return Math.round(n * 100);
+}
+
+/**
+ * Parse an amount typed for `currency`. Zero-decimal currencies read
+ * "900.000" as nine hundred thousand, but still accept a 2-decimal amount
+ * (old balances can carry cents).
+ */
+export function parseAmount(input: string, currency: string, digitsOf: (c: string) => 0 | 2): number | null {
+  if (digitsOf(currency) === 0) return parseCents(input, 0) ?? parseCents(input, 2);
+  return parseCents(input, 2);
+}
+
+/** Input text for an amount: whole number when it has no cents. */
+export function amountToInput(amount: number, digits: 0 | 2): string {
+  const cents = Math.round(amount * 100);
+  return digits === 0 && cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
 }
 
 /** Parse a percentage ("33.33") into hundredths of a percent; null if invalid. */
@@ -59,8 +87,11 @@ export interface SplitPreview {
 export function previewSplit(
   mode: SplitMode,
   totalCents: number | null,
-  rows: SplitRowInput[]
+  rows: SplitRowInput[],
+  /** Allocation step in cents (100 for zero-decimal currencies) */
+  unit = 1
 ): SplitPreview {
+  const digits: 0 | 2 = unit >= 100 ? 0 : 2;
   const n = rows.length;
   const total = totalCents ?? 0;
   const zero = rows.map(() => 0);
@@ -69,12 +100,12 @@ export function previewSplit(
 
   switch (mode) {
     case "EQUAL":
-      return { cents: allocateCents(total, rows.map(() => 1)), balanced: true, remaining: 0, problem: "" };
+      return { cents: allocateInUnits(total, rows.map(() => 1), unit), balanced: true, remaining: 0, problem: "" };
 
     case "EXACT": {
-      const parsed = rows.map((r) => (r.value.trim() === "" ? 0 : parseCents(r.value)));
+      const parsed = rows.map((r) => (r.value.trim() === "" ? 0 : parseCents(r.value, digits)));
       if (parsed.some((c) => c === null || c < 0)) {
-        return { cents: zero, balanced: false, remaining: total, problem: "Amounts must be positive numbers" };
+        return { cents: zero, balanced: false, remaining: total, problem: digits === 0 ? "Amounts must be whole numbers" : "Amounts must be positive numbers" };
       }
       const cents = parsed as number[];
       const remaining = total - cents.reduce((s, c) => s + c, 0);
@@ -97,7 +128,7 @@ export function previewSplit(
       // Server accepts |sum - 100| <= 0.01
       const balanced = Math.abs(remaining) <= 1 && sum > 0;
       return {
-        cents: sum > 0 ? allocateCents(total, pct) : zero,
+        cents: sum > 0 ? allocateInUnits(total, pct, unit) : zero,
         balanced,
         remaining: balanced ? 0 : remaining,
         problem: balanced ? "" : remaining > 0 ? "left to assign" : "over 100%",
@@ -109,11 +140,11 @@ export function previewSplit(
       if (shares.some((s) => !Number.isInteger(s) || s <= 0)) {
         return { cents: zero, balanced: false, remaining: 0, problem: "Shares must be whole numbers above 0" };
       }
-      return { cents: allocateCents(total, shares), balanced: true, remaining: 0, problem: "" };
+      return { cents: allocateInUnits(total, shares, unit), balanced: true, remaining: 0, problem: "" };
     }
 
     case "ADJUSTMENT": {
-      const parsed = rows.map((r) => (r.value.trim() === "" ? 0 : parseCents(r.value)));
+      const parsed = rows.map((r) => (r.value.trim() === "" ? 0 : parseCents(r.value, digits)));
       if (parsed.some((c) => c === null)) {
         return { cents: zero, balanced: false, remaining: 0, problem: "Adjustments must be numbers" };
       }
@@ -122,7 +153,7 @@ export function previewSplit(
       if (rest < 0) {
         return { cents: zero, balanced: false, remaining: rest, problem: "Adjustments exceed the total" };
       }
-      const cents = allocateCents(rest, rows.map(() => 1)).map((b, i) => b + adj[i]);
+      const cents = allocateInUnits(rest, rows.map(() => 1), unit).map((b, i) => b + adj[i]);
       if (cents.some((c) => c < 0)) {
         return { cents: zero, balanced: false, remaining: 0, problem: "A share would be negative" };
       }
@@ -139,13 +170,13 @@ export interface PayerPreview {
 }
 
 /** Payer amounts must be positive and add up to the total, to the cent. */
-export function previewPayers(totalCents: number | null, values: string[]): PayerPreview {
+export function previewPayers(totalCents: number | null, values: string[], digits: 0 | 2 = 2): PayerPreview {
   const total = totalCents ?? 0;
   if (values.length === 0) return { cents: [], balanced: false, remaining: total, problem: "Pick who paid" };
   if (values.length === 1) {
     return { cents: [total], balanced: total > 0, remaining: 0, problem: total > 0 ? "" : "Enter an amount" };
   }
-  const parsed = values.map((v) => (v.trim() === "" ? 0 : parseCents(v)));
+  const parsed = values.map((v) => (v.trim() === "" ? 0 : parseCents(v, digits)));
   if (parsed.some((c) => c === null || c < 0)) {
     return { cents: values.map(() => 0), balanced: false, remaining: total, problem: "Amounts must be positive numbers" };
   }
@@ -161,16 +192,18 @@ export function previewPayers(totalCents: number | null, values: string[]): Paye
 }
 
 /** Split `totalCents` evenly into strings for the payer inputs. */
-export function evenPayerValues(totalCents: number | null, count: number): string[] {
+export function evenPayerValues(totalCents: number | null, count: number, digits: 0 | 2 = 2): string[] {
   if (!totalCents || totalCents <= 0 || count === 0) return Array.from({ length: count }, () => "");
-  return allocateCents(totalCents, Array.from({ length: count }, () => 1)).map((c) => (c / 100).toFixed(2));
+  return allocateInUnits(totalCents, Array.from({ length: count }, () => 1), digits === 0 ? 100 : 1).map((c) =>
+    centsToInput(c, digits)
+  );
 }
 
 export const centsToNumber = fromCents;
 
-/** Format cents as a plain 2-decimal string for inputs ("12.50"). */
-export function centsToInput(cents: number): string {
-  return (cents / 100).toFixed(2);
+/** Format cents as a plain string for inputs ("12.50", or "900000" for zero-decimal currencies). */
+export function centsToInput(cents: number, digits: 0 | 2 = 2): string {
+  return (cents / 100).toFixed(digits);
 }
 
 /** Format hundredths of a percent ("33.33"). */
@@ -242,6 +275,11 @@ export interface StoredExpenseForForm {
   payers: Array<{ userId: string; amount: number }>;
   splits: StoredSplit[];
   items: Array<{ name: string; amount: number; splitMethod: "EQUAL" | "EXACT" | "PERCENTAGE" | "SHARES"; splits: StoredSplit[] }>;
+  /** Paid in another currency (amounts above are in it) */
+  currency?: string | null;
+  exchangeRate?: number | null;
+  /** This expense starts a repeating series */
+  repeat?: { frequency: "WEEKLY" | "BIWEEKLY" | "MONTHLY" | "YEARLY"; endDate: string | null } | null;
 }
 
 export interface SplitState {
@@ -251,10 +289,10 @@ export interface SplitState {
 }
 
 /** Input text for one stored split row in the given mode. */
-function valuesFor(mode: ItemSplitMode, splits: StoredSplit[]): Record<string, string> {
+function valuesFor(mode: ItemSplitMode, splits: StoredSplit[], digits: 0 | 2 = 2): Record<string, string> {
   const out: Record<string, string> = {};
   for (const s of splits) {
-    if (mode === "EXACT") out[s.userId] = centsToInput(s.amount);
+    if (mode === "EXACT") out[s.userId] = centsToInput(s.amount, digits);
     else if (mode === "PERCENTAGE") out[s.userId] = s.percentage !== null ? String(Number(s.percentage)) : "";
     else if (mode === "SHARES") out[s.userId] = s.shares !== null ? String(s.shares) : "1";
   }
@@ -271,7 +309,8 @@ export function splitStateFromStored(
   method: ItemSplitMode,
   totalCents: number,
   splits: StoredSplit[],
-  order: string[]
+  order: string[],
+  unit = 1
 ): SplitState {
   const selected = order.filter((id) => splits.some((s) => s.userId === id));
   // People on the expense who are not in the member list go last
@@ -280,10 +319,12 @@ export function splitStateFromStored(
   const ordered = selected.map((id) => byId.get(id)!);
   let mode: ItemSplitMode = method;
   if (mode === "EQUAL") {
-    const even = allocateCents(totalCents, ordered.map(() => 1));
-    if (ordered.some((s, i) => s.amount !== even[i])) mode = "EXACT";
+    // Older zero-decimal expenses were allocated in cents; accept either
+    const even = allocateInUnits(totalCents, ordered.map(() => 1), unit);
+    const evenCents = allocateCents(totalCents, ordered.map(() => 1));
+    if (ordered.some((s, i) => s.amount !== even[i]) && ordered.some((s, i) => s.amount !== evenCents[i])) mode = "EXACT";
   }
   if (mode === "PERCENTAGE" && ordered.some((s) => s.percentage === null)) mode = "EXACT";
   if (mode === "SHARES" && ordered.some((s) => s.shares === null)) mode = "EXACT";
-  return { mode, selected, values: valuesFor(mode, ordered) };
+  return { mode, selected, values: valuesFor(mode, ordered, unit >= 100 ? 0 : 2) };
 }

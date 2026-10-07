@@ -11,6 +11,8 @@ import { Alert, Avatar, Badge, Card, CardHeader, Money, PageHeader } from "@/com
 import { CategoryIcon } from "@/components/ui/category-icon";
 import { ExpenseActions, ReceiptCard } from "@/components/expense/expense-actions";
 import { CommentsCard } from "@/components/expense/comments";
+import { RecurringCard } from "@/components/expense/recurring-card";
+import { describeRate } from "@/lib/fx";
 
 export const dynamic = "force-dynamic";
 
@@ -121,6 +123,11 @@ export default async function ExpenseDetailPage({
                 <p className="text-3xl font-semibold text-slate-900">
                   <Money amount={d.amount / 100} currency={cur} />
                 </p>
+                {d.fx && (
+                  <p className="mt-0.5 text-sm text-slate-600">
+                    Paid <span className="font-medium tabular">{formatCurrency(d.fx.originalCents / 100, d.fx.originalCurrency)}</span>
+                  </p>
+                )}
                 <p className="mt-0.5 text-xs text-slate-500">{METHOD_LABEL[d.splitMethod] ?? d.splitMethod}</p>
               </div>
               <div className="text-right">
@@ -228,6 +235,15 @@ export default async function ExpenseDetailPage({
             <dl className="divide-y divide-slate-100 text-sm">
               <Row label="Date">{formatDate(d.date)}</Row>
               <Row label="Category">{categoryLabel(d.category)}</Row>
+              {d.fx && (
+                <Row label="Exchange rate">
+                  {describeRate(d.fx.originalCurrency, cur, d.fx.rate)}
+                  <span className="block text-xs text-slate-500">
+                    {d.fx.source === "manual" ? "Entered by hand" : d.fx.source === "frankfurter" ? "ECB reference rate" : "Market rate"}
+                    {d.fx.rateDate ? `, ${formatDate(d.fx.rateDate)}` : ""}
+                  </span>
+                </Row>
+              )}
               {d.group && (
                 <Row label="Group">
                   <Link href={`/groups/${d.group.id}`} className="text-brand-700 hover:underline">
@@ -252,6 +268,15 @@ export default async function ExpenseDetailPage({
               </div>
             )}
           </Card>
+
+          {d.recurring && (
+            <RecurringCard
+              recurring={d.recurring}
+              currency={cur}
+              canManage={(d.canManage || d.recurring.ownerId === userId) && !d.archived}
+              isSource={d.recurring.sourceExpenseId === d.id}
+            />
+          )}
 
           {(d.hasReceipt || (d.canManage && !d.deleted && !d.archived)) && (
             <ReceiptCard expenseId={d.id} hasReceipt={d.hasReceipt} canManage={d.canManage && !d.deleted && !d.archived} />

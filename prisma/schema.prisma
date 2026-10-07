@@ -94,6 +94,14 @@ model User {
   activities        Activity[]        @relation("ActivityActor")
   activityTargets   Activity[]        @relation("ActivityTarget")
   expenseComments   ExpenseComment[]
+  notifications     Notification[]
+  phoneVerifications PhoneVerification[]
+  recurringExpenses RecurringExpense[]
+
+  // WhatsApp number (E.164, e.g. +6281234567890). Messages go only to a
+  // verified number: phoneVerifiedAt is cleared whenever phone changes.
+  phone           String?
+  phoneVerifiedAt DateTime?
 }
 
 model VerificationToken {
@@ -137,6 +145,10 @@ model UserPreferences {
   currency  String  @default("USD") // ISO 4217 currency codes (USD, EUR, GBP, etc.)
   timezone  String  @default("UTC") // IANA timezone (America/New_York, Europe/London, etc.)
   language  String  @default("en")  // ISO 639-1 language codes (en, es, fr, de, etc.)
+
+  // Weekly summary email: "WEEKLY" or "NEVER"
+  emailDigest  String    @default("NEVER")
+  lastDigestAt DateTime?
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -168,7 +180,9 @@ model UserNotificationSetting {
   templateKey  String // References NotificationTemplate.key
   
   emailEnabled Boolean @default(true)
-  pushEnabled  Boolean @default(true)
+  pushEnabled  Boolean @default(true) // unused (no push channel)
+  // Only used once the user has a verified WhatsApp number
+  whatsappEnabled Boolean @default(true)
   
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -193,6 +207,13 @@ model Group {
   simplifyDebts Boolean @default(true)
   // Archived groups are read-only and listed separately
   archivedAt  DateTime?
+  // DIRECT = hidden 1:1 group between two friends (see src/lib/friends.ts)
+  kind        GroupKind @default(STANDARD)
+  // For DIRECT groups: the two user ids, sorted, joined by ":" (one per pair)
+  directKey   String?   @unique
+  // Weekly automatic payment reminders (off by default), sent by the cron job
+  autoRemindWeekly Boolean   @default(false)
+  lastAutoRemindAt DateTime?
 
   // Audit fields
   createdAt   DateTime @default(now())
@@ -206,9 +227,16 @@ model Group {
   settings    GroupSetting[]
   settlements Settlement[]
   activities  Activity[]
+  recurring   RecurringExpense[]
+  reminders   PaymentReminder[]
 
   @@index([createdBy])
   @@index([isActive])
+}
+
+enum GroupKind {
+  STANDARD
+  DIRECT
 }
 
 enum MemberStatus {
@@ -289,6 +317,20 @@ model Expense {
   // only through the authenticated /api/expenses/[id]/receipt route
   receiptKey  String?
 
+  // Multi-currency: `amount` and every split are in the group currency. When
+  // the expense was paid in another currency these keep what was typed.
+  originalAmount   Decimal?  @db.Decimal(14, 2)
+  originalCurrency String?
+  /** group-currency units per 1 unit of originalCurrency */
+  exchangeRate     Decimal?  @db.Decimal(24, 10)
+  rateDate         DateTime?
+  /** "frankfurter" | "open.er-api" | "manual" */
+  rateSource       String?
+
+  // Created from a recurring template (one occurrence per date)
+  recurringId    String?
+  recurrenceDate DateTime?
+
   // Status tracking
   isSettled   Boolean  @default(false)
   isDeleted   Boolean  @default(false)
@@ -310,7 +352,10 @@ model Expense {
   splits      ExpenseSplit[] // For simple expenses
   items       ExpenseItem[]  // For itemized expenses
   settlements Settlement[]
+  recurring   RecurringExpense? @relation("RecurringOccurrences", fields: [recurringId], references: [id], onDelete: SetNull)
+  recurringSource RecurringExpense[] @relation("RecurringSource")
 
+  @@unique([recurringId, recurrenceDate])
   @@index([groupId])
   @@index([date])
   @@index([groupId, date])
@@ -539,6 +584,8 @@ enum ActivityType {
   GROUP_ARCHIVED
   GROUP_UNARCHIVED
   COMMENT_ADDED
+  REMINDER_SENT
+  FRIEND_ADDED
 }
 
 model Activity {
@@ -553,8 +600,11 @@ model Activity {
   // Human-readable summary: names, amounts, before/after for edits
   payload      Json         @default("{}")
   createdAt    DateTime     @default(now())
+  // Set once notifications for this event were queued (see src/lib/notify)
+  notifiedAt   DateTime?
 
   group      Group? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  notifications Notification[]
   actor      User   @relation("ActivityActor", fields: [actorId], references: [id], onDelete: Cascade)
   targetUser User?  @relation("ActivityTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
 
@@ -562,6 +612,7 @@ model Activity {
   @@index([actorId, createdAt])
   @@index([expenseId])
   @@index([settlementId])
+  @@index([notifiedAt, createdAt])
 }
 
 model ExpenseComment {
@@ -575,4 +626,145 @@ model ExpenseComment {
   author  User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@index([expenseId, createdAt])
+}
+
+// ----- Notifications (outbox) -----
+// One row per recipient per channel, written after the change committed and
+// sent by src/lib/notify/outbox.ts (right away, then retried by the cron job).
+
+enum NotificationChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model Notification {
+  id            String              @id @default(cuid())
+  userId        String
+  activityId    String?
+  /** NotifyEvent key, e.g. "expense_added", "reminder", "digest" */
+  event         String
+  channel       NotificationChannel
+  status        NotificationStatus  @default(PENDING)
+  attempts      Int                 @default(0)
+  lastError     String?
+  /** Rendered message: { subject, text, html, to } */
+  payload       Json                @default("{}")
+  /** Makes queueing idempotent, e.g. "<activityId>:<userId>:EMAIL" */
+  dedupeKey     String              @unique
+  nextAttemptAt DateTime            @default(now())
+  sentAt        DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity Activity? @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([userId, createdAt])
+  @@index([activityId])
+}
+
+// WhatsApp number verification codes (hashed), also used for rate limiting
+model PhoneVerification {
+  id         String    @id @default(cuid())
+  userId     String
+  phone      String
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([phone, createdAt])
+}
+
+// Payment reminders (manual and automatic), rate limited per pair per group
+model PaymentReminder {
+  id         String   @id @default(cuid())
+  groupId    String
+  fromUserId String // creditor (who asked)
+  toUserId   String // debtor (who gets reminded)
+  amount     Decimal  @db.Decimal(14, 2)
+  currency   String
+  auto       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, fromUserId, toUserId, createdAt])
+}
+
+// ----- Recurring expenses -----
+
+enum RecurrenceFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum RecurringStatus {
+  ACTIVE
+  PAUSED
+  STOPPED
+}
+
+model RecurringExpense {
+  id          String              @id @default(cuid())
+  groupId     String
+  ownerId     String // occurrences are recorded as created by this person
+  frequency   RecurrenceFrequency
+  /** First occurrence (UTC midnight of the calendar day) */
+  startDate   DateTime
+  /** Last allowed occurrence day (inclusive), optional */
+  endDate     DateTime?
+  /** Occurrences created so far, including the first expense */
+  count       Int                 @default(1)
+  /** Calendar day of the next occurrence (UTC midnight) */
+  nextDate    DateTime
+  status      RecurringStatus     @default(ACTIVE)
+  /** Expense body with resolved user ids (same shape as POST /api/expenses) */
+  template    Json
+  description String
+  /** cents, in the group currency (for lists) */
+  amount      Int
+  lastError   String?
+  sourceExpenseId String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  group         Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  sourceExpense Expense?  @relation("RecurringSource", fields: [sourceExpenseId], references: [id], onDelete: SetNull)
+  occurrences   Expense[] @relation("RecurringOccurrences")
+
+  @@index([status, nextDate])
+  @@index([groupId])
+}
+
+// ----- Exchange rates (cached per day) -----
+
+model ExchangeRate {
+  id        String   @id @default(cuid())
+  base      String
+  quote     String
+  /** YYYY-MM-DD the rate applies to (as reported by the source) */
+  day       String
+  rate      Decimal  @db.Decimal(24, 10)
+  source    String
+  fetchedAt DateTime @default(now())
+
+  @@unique([base, quote, day])
+  @@index([base, quote, fetchedAt])
 }

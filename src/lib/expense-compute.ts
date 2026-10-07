@@ -45,8 +45,19 @@ export interface ComputedRows {
  * user-facing message when the numbers do not add up. Used for both create
  * and edit, so an edit recomputes splits exactly like a fresh expense.
  */
-export function computeExpenseRows(input: ResolvedExpenseInput): ComputedRows {
+export function computeExpenseRows(input: ResolvedExpenseInput, unit = 1): ComputedRows {
   if (!(input.amount > 0)) throw new Error("Amount must be greater than 0");
+  if (unit > 1) {
+    // Zero-decimal currencies (IDR, JPY...): every typed amount is whole
+    const whole = (v: number | undefined) => v === undefined || toCents(v) % unit === 0;
+    const typed = [
+      input.amount,
+      ...input.payers.map((p) => p.amountPaid),
+      ...(input.participants ?? []).map((p) => p.amount),
+      ...(input.items ?? []).flatMap((i) => [i.amount, ...i.participants.map((p) => p.amount)]),
+    ];
+    if (!typed.every(whole)) throw new Error("This currency has no decimals: use whole amounts");
+  }
   if (input.payers.length === 0) throw new Error("At least one payer is required");
   assertPayersMatchTotal(input.amount, input.payers.map((p) => p.amountPaid));
   if (new Set(input.payers.map((p) => p.userId)).size !== input.payers.length) {
@@ -62,7 +73,7 @@ export function computeExpenseRows(input: ResolvedExpenseInput): ComputedRows {
       splits: [],
       items: input.items.map(({ participants, ...item }) => ({
         ...item,
-        splits: calculateSplit(item.amount, participants, item.splitMethod),
+        splits: calculateSplit(item.amount, participants, item.splitMethod, unit),
       })),
     };
   }
@@ -71,7 +82,7 @@ export function computeExpenseRows(input: ResolvedExpenseInput): ComputedRows {
   return {
     splitMethod: input.splitMethod,
     payers: input.payers,
-    splits: calculateSplit(input.amount, input.participants, input.splitMethod),
+    splits: calculateSplit(input.amount, input.participants, input.splitMethod, unit),
     items: [],
   };
 }

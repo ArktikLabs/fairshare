@@ -20,7 +20,10 @@ import {
   type StoredExpenseForForm,
   type SplitMode,
 } from "@/lib/split-form";
-import { getCurrency } from "@/lib/currencies";
+import { currencyDigits, getCurrency, minorUnitCents } from "@/lib/currencies";
+import { REPEAT_OPTIONS, type RepeatChoice } from "@/lib/recurrence";
+import { describeRate, parseRate } from "@/lib/fx";
+import { CurrencySelect } from "@/components/ui/currency-select";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { Alert, Card } from "@/components/ui/primitives";
@@ -59,10 +62,10 @@ function seedValues(mode: SplitMode, ids: string[], prev: Record<string, string>
   return next;
 }
 
-function sumCents(values: string[]) {
+function sumCents(values: string[], digits: 0 | 2) {
   let total = 0;
   for (const v of values) {
-    const c = parseCents(v);
+    const c = parseCents(v, digits);
     if (c === null || c < 0) return null;
     total += c;
   }
@@ -78,8 +81,10 @@ export interface EditingExpense extends StoredExpenseForForm {
 }
 
 /** Initial editor state: blank for a new expense, or the stored expense. */
-function initialState(members: FormMember[], currentUserId: string, editing?: EditingExpense) {
+function initialState(members: FormMember[], currentUserId: string, currency: string, editing?: EditingExpense) {
   const allIds = members.map((m) => m.userId);
+  const digits = currencyDigits(currency);
+  const unit = minorUnitCents(currency);
   if (!editing) {
     return {
       description: "",
@@ -97,11 +102,11 @@ function initialState(members: FormMember[], currentUserId: string, editing?: Ed
       payers: [] as Array<{ userId: string; value: string }>,
     };
   }
-  const simple = splitStateFromStored(editing.splitMethod, editing.amount, editing.splits, allIds);
+  const simple = splitStateFromStored(editing.splitMethod, editing.amount, editing.splits, allIds, unit);
   const multi = editing.payers.length > 1;
   return {
     description: editing.description,
-    amount: centsToInput(editing.amount),
+    amount: centsToInput(editing.amount, digits),
     date: editing.date,
     category: (editing.category ?? "OTHER") as CategoryValue,
     notes: editing.notes ?? "",
@@ -110,12 +115,12 @@ function initialState(members: FormMember[], currentUserId: string, editing?: Ed
     selected: editing.items.length > 0 ? allIds : simple.selected,
     values: simple.values,
     items: editing.items.map((it, i) => {
-      const st = splitStateFromStored(it.splitMethod, it.amount, it.splits, allIds);
-      return { key: i + 1, name: it.name, amount: centsToInput(it.amount), mode: st.mode, selected: st.selected, values: st.values };
+      const st = splitStateFromStored(it.splitMethod, it.amount, it.splits, allIds, unit);
+      return { key: i + 1, name: it.name, amount: centsToInput(it.amount, digits), mode: st.mode, selected: st.selected, values: st.values };
     }),
     multiPayer: multi,
     payer: editing.payers[0]?.userId ?? currentUserId,
-    payers: multi ? editing.payers.map((p) => ({ userId: p.userId, value: centsToInput(p.amount) })) : [],
+    payers: multi ? editing.payers.map((p) => ({ userId: p.userId, value: centsToInput(p.amount, digits) })) : [],
   };
 }
 
@@ -146,9 +151,20 @@ export function ExpenseForm({
     return [...group.members, ...extra];
   }, [editing, group.members]);
   const allIds = useMemo(() => members.map((m) => m.userId), [members]);
-  const currency = group.currency;
+  const groupCurrency = group.currency;
+  // The expense may be paid in another currency; the ledger stays in the group's
+  const [currency, setCurrency] = useState(editing?.currency || groupCurrency);
+  const foreign = currency !== groupCurrency;
+  const digits = currencyDigits(currency);
+  const unit = minorUnitCents(currency);
+  const placeholder = digits === 0 ? "0" : "0.00";
   const symbol = getCurrency(currency)?.symbol ?? currency;
-  const [init] = useState(() => initialState(members, currentUserId, editing));
+  const [init] = useState(() => initialState(members, currentUserId, currency, editing));
+  const [rateText, setRateText] = useState(editing?.exchangeRate ? String(editing.exchangeRate) : "");
+  const [rateInfo, setRateInfo] = useState<{ state: "idle" | "loading" | "ok" | "failed"; day?: string; source?: string }>({ state: "idle" });
+  const [rateEdited, setRateEdited] = useState(Boolean(editing?.exchangeRate));
+  const [repeat, setRepeat] = useState<RepeatChoice>(editing?.repeat?.frequency ?? "NONE");
+  const [repeatEnd, setRepeatEnd] = useState(editing?.repeat?.endDate ?? "");
 
   const [description, setDescription] = useState(init.description);
   const [amount, setAmount] = useState(init.amount);
@@ -174,6 +190,29 @@ export function ExpenseForm({
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState("");
 
+  // Look up the day's rate for a foreign currency (the user can override it)
+  useEffect(() => {
+    if (!foreign || rateEdited || !date) return;
+    let cancelled = false;
+    setRateInfo({ state: "loading" });
+    fetch(`/api/fx/rate?from=${currency}&to=${groupCurrency}&date=${date}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { rate?: number; day?: string; source?: string } | null) => {
+        if (cancelled) return;
+        if (j?.rate) {
+          setRateText(String(Number(j.rate.toPrecision(8))));
+          setRateInfo({ state: "ok", day: j.day, source: j.source });
+        } else {
+          setRateInfo({ state: "failed" });
+        }
+      })
+      .catch(() => !cancelled && setRateInfo({ state: "failed" }));
+    return () => {
+      cancelled = true;
+    };
+  }, [foreign, currency, groupCurrency, date, rateEdited]);
+  const rate = foreign ? parseRate(rateText) : 1;
+
   // Remember the group for the next /expenses/create
   useEffect(() => {
     if (editing) return;
@@ -195,29 +234,38 @@ export function ExpenseForm({
     setPayers([]);
     setMultiPayer(false);
     setItems((xs) => xs.map((it) => ({ ...it, selected: g.members.map((m) => m.userId), values: {} })));
+    setCurrency(g.currency);
+    setRateText("");
+    setRateEdited(false);
+  };
+  const changeCurrency = (code: string) => {
+    setCurrency(code);
+    setRateEdited(false);
+    setRateText("");
+    setRateInfo({ state: "idle" });
   };
 
   const orderSel = (ids: string[]) => allIds.filter((id) => ids.includes(id));
   const nameOf = (id: string) => (id === currentUserId ? "You" : members.find((m) => m.userId === id)?.name ?? "?");
 
   // ----- totals -----
-  const itemsTotal = useMemo(() => sumCents(items.map((i) => i.amount)), [items]);
-  const totalCents = itemized ? itemsTotal : parseCents(amount);
+  const itemsTotal = useMemo(() => sumCents(items.map((i) => i.amount), digits), [items, digits]);
+  const totalCents = itemized ? itemsTotal : parseCents(amount, digits);
 
   // ----- split previews -----
   const simplePreview = useMemo(
-    () => previewSplit(mode, totalCents, selected.map((id) => ({ value: values[id] ?? "" }))),
-    [mode, totalCents, selected, values]
+    () => previewSplit(mode, totalCents, selected.map((id) => ({ value: values[id] ?? "" })), unit),
+    [mode, totalCents, selected, values, unit]
   );
   const itemPreviews = useMemo(
-    () => items.map((it) => previewSplit(it.mode, parseCents(it.amount), it.selected.map((id) => ({ value: it.values[id] ?? "" })))),
-    [items]
+    () => items.map((it) => previewSplit(it.mode, parseCents(it.amount, digits), it.selected.map((id) => ({ value: it.values[id] ?? "" })), unit)),
+    [items, digits, unit]
   );
   const payerRows = multiPayer ? payers : [{ userId: payer, value: "" }];
   const payerPreview = useMemo(
-    () => previewPayers(totalCents, payerRows.map((p) => p.value)),
+    () => previewPayers(totalCents, payerRows.map((p) => p.value), digits),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [totalCents, multiPayer, payers, payer]
+    [totalCents, multiPayer, payers, payer, digits]
   );
 
   // ----- validation -----
@@ -225,17 +273,20 @@ export function ExpenseForm({
   if (!description.trim()) errors.description = "Add a short description";
   if (!itemized) {
     if (!amount.trim()) errors.amount = "Enter the total";
-    else if (totalCents === null || totalCents <= 0) errors.amount = "Enter an amount above 0 with at most 2 decimals";
+    else if (totalCents === null || totalCents <= 0)
+      errors.amount = digits === 0 ? `Enter a whole amount above 0 (${currency} has no decimals)` : "Enter an amount above 0 with at most 2 decimals";
   } else {
     if (items.length === 0) errors.items = "Add at least one item";
     items.forEach((it, i) => {
       if (!it.name.trim()) errors[`item-${it.key}-name`] = "Name the item";
-      const c = parseCents(it.amount);
+      const c = parseCents(it.amount, digits);
       if (c === null || c <= 0) errors[`item-${it.key}-amount`] = "Enter a price";
       else if (!itemPreviews[i].balanced) errors[`item-${it.key}-split`] = itemPreviews[i].problem;
     });
   }
   if (!date) errors.date = "Pick a date";
+  if (foreign && !rate) errors.rate = rateInfo.state === "loading" ? "Looking up the rate" : `Enter how many ${groupCurrency} one ${currency} is`;
+  if (repeat !== "NONE" && repeatEnd && repeatEnd < date) errors.repeatEnd = "The end date is before the first date";
   const splitOk = itemized ? items.length > 0 && itemPreviews.every((p) => p.balanced) : simplePreview.balanced;
   const payersOk = payerPreview.balanced && new Set(payerRows.map((p) => p.userId)).size === payerRows.length;
   const valid = Object.keys(errors).length === 0 && splitOk && payersOk;
@@ -274,17 +325,17 @@ export function ExpenseForm({
 
   const enableMultiPayer = () => {
     const ids = [payer];
-    setPayers(ids.map((userId, i) => ({ userId, value: evenPayerValues(totalCents, ids.length)[i] })));
+    setPayers(ids.map((userId, i) => ({ userId, value: evenPayerValues(totalCents, ids.length, digits)[i] })));
     setMultiPayer(true);
   };
   const addPayer = (userId: string) => {
     if (!userId) return;
     const next = [...payers.map((p) => p.userId), userId];
-    const even = evenPayerValues(totalCents, next.length);
+    const even = evenPayerValues(totalCents, next.length, digits);
     setPayers(next.map((id, i) => ({ userId: id, value: even[i] })));
   };
   const splitPayersEvenly = () => {
-    const even = evenPayerValues(totalCents, payers.length);
+    const even = evenPayerValues(totalCents, payers.length, digits);
     setPayers((ps) => ps.map((p, i) => ({ ...p, value: even[i] })));
   };
 
@@ -308,7 +359,7 @@ export function ExpenseForm({
         const built = buildParticipants(it.mode, it.selected, it.selected.map((id) => ({ value: it.values[id] ?? "" })), itemPreviews[i]);
         return {
           name: it.name.trim(),
-          amount: centsToNumber(parseCents(it.amount)!),
+          amount: centsToNumber(parseCents(it.amount, digits)!),
           quantity: 1,
           isShared: it.selected.length > 1,
           splitMethod: built.splitMethod,
@@ -322,6 +373,11 @@ export function ExpenseForm({
     }
 
     if (editing) payload.notes = notes.trim() || null;
+    payload.currency = currency;
+    if (foreign && rate) payload.exchangeRate = rate;
+    if (!editing || repeat !== "NONE" || editing.repeat) {
+      payload.repeat = { frequency: repeat, endDate: repeat !== "NONE" && repeatEnd ? repeatEnd : null };
+    }
 
     setSubmitting(true);
     try {
@@ -361,6 +417,8 @@ export function ExpenseForm({
       ? "Add a description"
       : errors.amount
         ? "Enter the total"
+        : errors.rate
+          ? errors.rate
         : errors.items
           ? errors.items
           : !splitOk
@@ -416,7 +474,7 @@ export function ExpenseForm({
                     inputMode="decimal"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    placeholder="0.00"
+                    placeholder={placeholder}
                     className={cn("text-right text-base font-semibold tabular", symbol.length > 2 ? "pl-12" : "pl-8")}
                     aria-invalid={show("amount") ? true : undefined}
                   />
@@ -427,6 +485,63 @@ export function ExpenseForm({
               <Input id="exp-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </Field>
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Currency" htmlFor="exp-currency">
+              <CurrencySelect id="exp-currency" value={currency} onChange={changeCurrency} />
+            </Field>
+            <Field label="Repeat" htmlFor="exp-repeat">
+              <Select id="exp-repeat" value={repeat} onChange={(e) => setRepeat(e.target.value as RepeatChoice)}>
+                {REPEAT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          {foreign && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <Field
+                label={`Rate: ${groupCurrency} per 1 ${currency}`}
+                htmlFor="exp-rate"
+                error={touched || rateInfo.state === "failed" ? errors.rate : undefined}
+                hint={
+                  rateInfo.state === "loading"
+                    ? "Looking up today's rate..."
+                    : rateInfo.state === "ok" && !rateEdited
+                      ? `${rateInfo.source === "frankfurter" ? "ECB reference rate" : "Market rate"} for ${rateInfo.day}. You can change it.`
+                      : rateInfo.state === "failed" && !rateEdited
+                        ? "No rate available for this currency. Enter it yourself."
+                        : "Entered by hand"
+                }
+              >
+                <Input
+                  id="exp-rate"
+                  inputMode="decimal"
+                  value={rateText}
+                  onChange={(e) => {
+                    setRateText(e.target.value);
+                    setRateEdited(true);
+                  }}
+                  className="tabular"
+                  aria-invalid={errors.rate && touched ? true : undefined}
+                />
+              </Field>
+              {rate && totalCents ? (
+                <p className="mt-2 text-sm text-slate-700">
+                  {formatCurrency(totalCents / 100, currency)} ≈{" "}
+                  <span className="font-semibold">{formatCurrency(Math.round((totalCents * rate) / minorUnitCents(groupCurrency)) * minorUnitCents(groupCurrency) / 100, groupCurrency)}</span>
+                  <span className="text-slate-500"> · {describeRate(currency, groupCurrency, rate)}</span>
+                </p>
+              ) : null}
+            </div>
+          )}
+          {repeat !== "NONE" && (
+            <Field label="Ends (optional)" htmlFor="exp-repeat-end" error={errors.repeatEnd} hint="The next one is added automatically on its date. Leave empty to repeat until you stop it.">
+              <Input id="exp-repeat-end" type="date" value={repeatEnd} min={date} onChange={(e) => setRepeatEnd(e.target.value)} />
+            </Field>
+          )}
 
           <div>
             <button
@@ -526,7 +641,7 @@ export function ExpenseForm({
                       inputMode="decimal"
                       value={p.value}
                       onChange={(e) => setPayers((ps) => ps.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
-                      placeholder="0.00"
+                      placeholder={placeholder}
                       className="h-8 w-28 rounded-md border border-slate-300 px-2 text-right text-sm tabular focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
                     />
                     <button
@@ -629,7 +744,7 @@ export function ExpenseForm({
                           inputMode="decimal"
                           value={it.amount}
                           onChange={(e) => setItem(it.key, { amount: e.target.value })}
-                          placeholder="0.00"
+                          placeholder={placeholder}
                           className="text-right tabular"
                         />
                       </div>
@@ -661,7 +776,7 @@ export function ExpenseForm({
                     onValue={(id, v) => setItem(it.key, { values: { ...it.values, [id]: v } })}
                     preview={itemPreviews[i]}
                   />
-                  {parseCents(it.amount) ? (
+                  {parseCents(it.amount, digits) ? (
                     <RemainderLine mode={it.mode} preview={itemPreviews[i]} currency={currency} okText="Item split adds up" />
                   ) : null}
                 </div>

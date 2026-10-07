@@ -1,12 +1,13 @@
 // The one place that records activity. Every event (expense, payment, member,
 // group, comment) goes through recordActivity(), so the activity feed, the
 // expense edit history and (later) notifications all read the same rows.
-// Notifications should hook in here: after the row is written, fan out to
-// the people in `payload.impact` / the group, outside the DB transaction.
+// Notifications hook in here: after the row is written, scheduleNotify()
+// fans out to the people affected, outside the DB transaction.
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "./prisma";
 import type { ActivityLike, ActivityPayload, ActivityTypeName } from "./activity-format";
+import { scheduleNotify } from "./notify/schedule";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -34,15 +35,19 @@ export async function recordActivity(input: ActivityInput, db: Db = prisma) {
   const [actor, group] = await Promise.all([
     db.user.findUnique({ where: { id: input.actorId }, select: { name: true, displayName: true, email: true } }),
     input.groupId
-      ? db.group.findUnique({ where: { id: input.groupId }, select: { name: true, currency: true } })
+      ? db.group.findUnique({
+          where: { id: input.groupId },
+          select: { name: true, currency: true, kind: true, members: { where: { status: "ACTIVE" }, select: { userId: true } } },
+        })
       : Promise.resolve(null),
   ]);
   const payload: ActivityPayload = {
     actorName: nameOf(actor),
     ...(group ? { groupName: group.name, currency: group.currency } : {}),
+    ...(group?.kind === "DIRECT" ? { direct: group.members.map((m) => m.userId).sort() } : {}),
     ...input.payload,
   };
-  return db.activity.create({
+  const row = await db.activity.create({
     data: {
       type: input.type,
       actorId: input.actorId,
@@ -54,6 +59,11 @@ export async function recordActivity(input: ActivityInput, db: Db = prisma) {
       payload: payload as Prisma.InputJsonValue,
     },
   });
+  // Notifications go out after the change commits, never inside it: inside
+  // a transaction the dispatcher is scheduled for after the commit (and the
+  // cron job picks up anything a crash left behind via notifiedAt).
+  scheduleNotify(row.id, db === prisma);
+  return row;
 }
 
 /** Display names for a set of user ids (for payment / member payloads). */

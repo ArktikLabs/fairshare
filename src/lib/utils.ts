@@ -2,17 +2,26 @@
  * Utility functions for the FairShare application
  */
 
+import { currencyDigits } from './currencies';
+
 /**
- * Format currency amount with proper locale and currency symbol
+ * Format an amount in a currency's own minor unit: "$12.50", "IDR 900,000",
+ * "¥1,200". Fixed locale and a static digits table so the server and the
+ * browser render the same string (no hydration mismatch).
  */
 export function formatCurrency(amount: number, currency: string = 'USD'): string {
-  // Handle the currency formatting
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+  const digits = currencyDigits(currency);
+  const value = Object.is(amount, -0) ? 0 : amount;
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency || 'USD',
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(value);
+  } catch {
+    return `${currency} ${value.toFixed(digits)}`;
+  }
 }
 
 /**

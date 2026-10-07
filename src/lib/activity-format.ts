@@ -26,7 +26,9 @@ export type ActivityTypeName =
   | "GROUP_SETTINGS_CHANGED"
   | "GROUP_ARCHIVED"
   | "GROUP_UNARCHIVED"
-  | "COMMENT_ADDED";
+  | "COMMENT_ADDED"
+  | "REMINDER_SENT"
+  | "FRIEND_ADDED";
 
 export type SettingChange =
   | { field: "currency"; from: string; to: string }
@@ -43,6 +45,15 @@ export interface ActivityPayload {
   amount?: number;
   /** userId -> cents (paid - share); + = lent, - = owes */
   impact?: Record<string, number>;
+  /** Edits: impact before the change (who to notify) */
+  previousImpact?: Record<string, number>;
+  /** Paid in another currency: original cents + code */
+  originalAmount?: number;
+  originalCurrency?: string;
+  /** Created by a recurring template */
+  recurring?: boolean;
+  /** 1:1 friend ledger (hidden group): the two people */
+  direct?: string[];
   changes?: ExpenseChange[];
   // payments
   fromId?: string;
@@ -131,9 +142,10 @@ export function describeActivity(
   const money = (cents: number) => formatCurrency(Math.abs(cents) / 100, cur);
   const actor = a.actorId === viewerId ? "You" : p.actorName || "Someone";
   const who = (id: string | null | undefined, name: string | undefined) => (id && id === viewerId ? "you" : name || "someone");
-  const inGroup = opts.showGroup !== false && p.groupName ? ` in ${p.groupName}` : "";
+  const friendId = p.direct ? p.direct.find((id) => id !== viewerId) ?? null : null;
+  const inGroup = opts.showGroup !== false && p.groupName && !p.direct ? ` in ${p.groupName}` : "";
   const expenseHref = a.expenseId ? `/expenses/${a.expenseId}` : null;
-  const groupHref = a.groupId ? `/groups/${a.groupId}` : null;
+  const groupHref = p.direct ? (friendId ? `/friends/${friendId}` : "/friends") : a.groupId ? `/groups/${a.groupId}` : null;
 
   const impactDetail = (verbPast = false): ActivityLine["detail"] => {
     if (!p.impact) return null;
@@ -149,7 +161,11 @@ export function describeActivity(
 
   switch (a.type) {
     case "EXPENSE_CREATED":
-      return { text: `${actor} added ${q(p.description)}${inGroup}`, detail: impactDetail(), href: expenseHref };
+      return {
+        text: `${actor} added ${q(p.description)}${inGroup}${p.recurring ? " (repeating)" : ""}`,
+        detail: impactDetail(),
+        href: expenseHref,
+      };
     case "EXPENSE_UPDATED": {
       const parts = (p.changes ?? []).map((ch) => changeText(ch, cur));
       const what = parts.length ? `: ${joinList(parts)}` : "";
@@ -167,9 +183,7 @@ export function describeActivity(
       const from = who(p.fromId, p.fromName);
       const to = who(p.toId, p.toName);
       const amt = money(p.amount ?? 0);
-      const href = a.groupId ? `/groups/${a.groupId}#payments` : null;
-      const mine =
-        p.fromId === viewerId ? -(p.amount ?? 0) : p.toId === viewerId ? p.amount ?? 0 : 0;
+      const href = p.direct ? groupHref : a.groupId ? `/groups/${a.groupId}#payments` : null;
       let text: string;
       if (a.type === "PAYMENT_RECORDED") {
         text =
@@ -187,14 +201,8 @@ export function describeActivity(
       } else {
         text = `${actor} restored a payment of ${amt} from ${from} to ${to}${inGroup}`;
       }
-      // Payments move balances the other way: the payer's debt shrinks
-      const detail: ActivityLine["detail"] =
-        mine === 0 || a.type === "PAYMENT_DELETED" || a.type === "PAYMENT_UPDATED"
-          ? null
-          : mine < 0
-            ? { text: `you paid ${money(mine)}`, tone: "neutral" }
-            : { text: `you received ${money(mine)}`, tone: "neutral" };
-      return { text: text.charAt(0).toUpperCase() + text.slice(1), detail, href };
+      // The line already says "you paid" / "paid you": no second line
+      return { text: text.charAt(0).toUpperCase() + text.slice(1), detail: null, href };
     }
 
     case "MEMBER_INVITED":
@@ -235,6 +243,17 @@ export function describeActivity(
         detail: null,
         href: expenseHref ? `${expenseHref}#comments` : null,
       };
+
+    case "REMINDER_SENT": {
+      const target = who(a.targetUserId, p.targetName);
+      return {
+        text: `${actor} reminded ${target} to pay ${money(p.amount ?? 0)}${inGroup}`,
+        detail: null,
+        href: groupHref,
+      };
+    }
+    case "FRIEND_ADDED":
+      return { text: `${actor} added ${who(a.targetUserId, p.targetName)} as a friend`, detail: null, href: groupHref };
   }
 }
 

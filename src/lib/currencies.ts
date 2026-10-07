@@ -167,6 +167,30 @@ export const CURRENCIES: ReadonlyArray<Currency> = [
   { code: "ZWG", name: "Zimbabwean Gold", symbol: "ZWG" },
 ];
 
+/**
+ * Currencies shown without decimals (CLDR display digits, the same list
+ * Intl.NumberFormat uses), e.g. IDR 900,000 and ¥1,200. Static so server and
+ * browser agree. Three-decimal currencies (BHD, KWD...) are shown with two
+ * decimals because amounts are stored in hundredths.
+ */
+export const ZERO_DECIMAL_CURRENCIES: ReadonlySet<string> = new Set([
+  "AFN", "ALL", "BIF", "CLP", "COP", "DJF", "GNF", "HUF", "IDR", "IQD", "IRR", "ISK", "JPY", "KMF", "KPW", "KRW",
+  "LAK", "LBP", "MGA", "MMK", "PKR", "PYG", "RWF", "SOS", "SYP", "UGX", "VND", "VUV", "XAF", "XOF", "XPF", "YER",
+]);
+
+/** Decimals shown for a currency: 0 or 2. */
+export function currencyDigits(code: string | null | undefined): 0 | 2 {
+  return code && ZERO_DECIMAL_CURRENCIES.has(code.toUpperCase()) ? 0 : 2;
+}
+
+/**
+ * The smallest amount splits are allocated in, in cents: 100 for
+ * zero-decimal currencies (whole rupiah / yen), 1 otherwise.
+ */
+export function minorUnitCents(code: string | null | undefined): 1 | 100 {
+  return currencyDigits(code) === 0 ? 100 : 1;
+}
+
 /** Shown first in pickers. */
 export const POPULAR_CURRENCIES = ["USD", "EUR", "GBP", "IDR", "SGD", "MYR", "AUD", "JPY", "INR", "CAD"] as const;
 

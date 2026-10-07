@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Check, HandCoins, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowRight, Bell, Check, HandCoins, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import type { GroupSettlements, Settlement } from "@/lib/settlement-utils";
 import type { PaymentRecord } from "@/lib/group-ledger";
-import { parseCents } from "@/lib/split-form";
+import { amountToInput, parseAmount } from "@/lib/split-form";
+import { currencyDigits } from "@/lib/currencies";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ export function SettleUpCard({
   currentUserId,
   isAdmin,
   readOnly = false,
+  reminderCooldowns = {},
 }: {
   groupId: string;
   currency: string;
@@ -40,6 +42,8 @@ export function SettleUpCard({
   isAdmin: boolean;
   /** Archived groups: show balances, hide recording */
   readOnly?: boolean;
+  /** "debtor:creditor" -> ISO time a reminder is allowed again */
+  reminderCooldowns?: Record<string, string>;
 }) {
   const router = useRouter();
   const [paying, setPaying] = useState<Settlement | null>(null);
@@ -48,6 +52,36 @@ export function SettleUpCard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [reminding, setReminding] = useState<string | null>(null);
+  const [reminded, setReminded] = useState<Record<string, string>>(reminderCooldowns);
+
+  const remind = async (s: Settlement) => {
+    const key = `${s.fromUserId}:${s.toUserId}`;
+    setReminding(key);
+    setError("");
+    setNotice("");
+    try {
+      const res = await fetch(`/api/groups/${groupId}/reminders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ debtorId: s.fromUserId, creditorId: s.toUserId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setReminded((r) => ({ ...r, [key]: new Date(Date.now() + 24 * 3600_000).toISOString() }));
+        setNotice(`Reminder sent to ${s.fromUserName}`);
+      } else if (res.status === 429) {
+        setReminded((r) => ({ ...r, [key]: body.retryAt ?? new Date(Date.now() + 24 * 3600_000).toISOString() }));
+        setNotice(`${s.fromUserName} was already reminded in the last 24 hours`);
+      } else {
+        setError(body.error || "Could not send the reminder");
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setReminding(null);
+    }
+  };
 
   const canRecord = (s: Settlement) => !readOnly && (isAdmin || s.fromUserId === currentUserId || s.toUserId === currentUserId);
   const nameOf = (id: string, name: string) => (id === currentUserId ? "You" : name);
@@ -60,13 +94,13 @@ export function SettleUpCard({
 
   const open = (s: Settlement) => {
     setPaying(s);
-    setAmount(s.amount.toFixed(2));
+    setAmount(amountToInput(s.amount, currencyDigits(currency)));
     setMethod("CASH");
     setError("");
     setNotice("");
   };
 
-  const cents = parseCents(amount);
+  const cents = parseAmount(amount, currency, currencyDigits);
   const amountError = amount && (cents === null || cents <= 0) ? "Enter an amount greater than 0" : "";
 
   const submit = async (e: React.FormEvent) => {
@@ -121,6 +155,11 @@ export function SettleUpCard({
           <Alert tone="success">{notice}</Alert>
         </div>
       )}
+      {error && !paying && (
+        <div className="px-4 pt-3 sm:px-5">
+          <Alert tone="error">{error}</Alert>
+        </div>
+      )}
       {suggestions.length === 0 ? (
         <EmptyState icon={<Check />} title="All settled up" className="py-6" />
       ) : (
@@ -152,6 +191,22 @@ export function SettleUpCard({
                     {iPay ? "Record payment" : iGet ? "Mark received" : "Record"}
                   </Button>
                 )}
+                {!readOnly && (iGet || isAdmin) && !iPay && (() => {
+                  const key = `${s.fromUserId}:${s.toUserId}`;
+                  const cooling = Boolean(reminded[key] && reminded[key] > new Date().toISOString());
+                  return (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => remind(s)}
+                      disabled={cooling || reminding === key}
+                      title={cooling ? "You can remind again 24 hours after the last reminder" : `Send ${s.fromUserName} a reminder`}
+                      aria-label={cooling ? `${s.fromUserName} was reminded` : `Remind ${s.fromUserName}`}
+                    >
+                      <Bell /> {cooling ? "Reminded" : reminding === key ? "Sending..." : "Remind"}
+                    </Button>
+                  );
+                })()}
               </li>
             );
           })}
@@ -278,7 +333,7 @@ export function PaymentsCard({
   const name = (p: { id: string; name: string }) => (p.id === currentUserId ? "You" : p.name);
   const line = (p: PaymentRecord) =>
     `${name(p.from)} paid ${p.to.id === currentUserId ? "you" : p.to.name} ${formatCurrency(p.amount, currency)}`;
-  const cents = parseCents(amount);
+  const cents = parseAmount(amount, currency, currencyDigits);
   const amountError = amount && (cents === null || cents <= 0) ? "Enter an amount greater than 0" : "";
 
   const call = async (id: string, init: RequestInit) => {
@@ -380,7 +435,7 @@ export function PaymentsCard({
                       icon: <Pencil />,
                       onSelect: () => {
                         setEditing(p);
-                        setAmount(p.amount.toFixed(2));
+                        setAmount(amountToInput(p.amount, currencyDigits(currency)));
                         setMethod(METHODS.some((m) => m.value === p.method) ? p.method : "OTHER");
                         setError("");
                       },

@@ -209,10 +209,12 @@ describe("activity lines", () => {
   it("describes payments from the reader's side", () => {
     const base = { type: "PAYMENT_RECORDED" as const, expenseId: null, settlementId: "s" };
     const l = describeActivity(a({ ...base, actorId: "me", payload: { actorName: "Me", currency: "IDR", amount: 1000000, fromId: "me", fromName: "Me", toId: "ani", toName: "Ani" } }), "me", { showGroup: false });
-    expect(l.text).toMatch(/^You paid Ani IDR\s10,000\.00$/);
+    expect(l.text).toMatch(/^You paid Ani IDR\s10,000$/);
+    expect(l.detail).toBeNull();
     const l2 = describeActivity(a({ ...base, actorId: "ani", payload: { actorName: "Ani", currency: "USD", amount: 500, fromId: "b", fromName: "Budi", toId: "me", toName: "Me" } }), "me", { showGroup: false });
     expect(l2.text).toBe("Ani recorded a payment: Budi paid you $5.00");
-    expect(l2.detail?.text).toBe("you received $5.00");
+    // No redundant "you received" line under "paid you"
+    expect(l2.detail).toBeNull();
   });
   it("joins lists in plain English", () => {
     expect(joinList(["a"])).toBe("a");
