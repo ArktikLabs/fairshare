@@ -1,7 +1,7 @@
 # RFC: Expense and Group Management System
 
 **Date**: August 28, 2025  
-**Status**: ✅ IMPLEMENTATION COMPLETE - 100% CORE FEATURES  
+**Status**: Historical design proposal (August 2025). Much has changed since; the code and [STATUS.md](./STATUS.md) are the source of truth.  
 **Author**: Development Team  
 **Reviewers**: ✅ All Requirements Met
 

@@ -1,78 +1,78 @@
 # FairShare
 
-A modern expense-sharing application built with Next.js, featuring secure authentication and an intuitive design system.
+Split shared expenses with groups and friends, see who owes whom, and settle up.
+Built with Next.js 15 (App Router), PostgreSQL (Prisma) and Auth.js v5.
 
-## ✨ Features
+Production: https://fairshare.arktik.id (`noindex`, private beta).
 
-- 🔐 **Secure Authentication** - Password and passwordless (WebAuthn) login
-- 💰 **Expense Splitting** - Equal, exact, percentage, shares and itemized (per-item) splits, with multiple payers
-- 👥 **Groups & Invites** - Invite by email; people without an account can be added to expenses right away and claim their balance when they sign up
-- ⚖️ **Settle Up** - Live balances per group, the fewest payments needed to settle, and a record of payments made
-- 📱 **Responsive Design** - Works on all device sizes
-- ♿ **Accessibility** - WCAG compliant design system
+## What it does
 
-## 🚀 Quick Start
+- **Groups:** roles (owner / admin / member) and invites by email. "Ghost"
+  members can be put on expenses before they have an account.
+- **Friends:** 1:1 balances with a friend, outside any group.
+- **Splitting:**
+  - Equal, exact, percentage, shares and per-item splits, with one or more payers.
+  - Amounts are split in whole minor units (cents, or whole rupiah for IDR), so
+    the parts always add up to the total.
+- **Multi-currency:** an expense can be in a different currency from its group.
+  It is converted at a stored daily rate.
+- **Expense records:** receipts (image upload), comments and edit history. Deleting
+  is soft and can be undone for 30 days.
+- **Balances and settling up:**
+  - The app suggests the fewest payments, or plain pairwise debts if you prefer.
+  - Recorded payments can be edited or undone.
+- **Also included:** recurring expenses, payment reminders, an activity feed,
+  spending insights and CSV exports.
+- **Notifications:**
+  - Email is sent through Resend. You choose which events you hear about, can
+    get a weekly digest, and can unsubscribe in one click.
+  - WhatsApp (via WAHA) is built but switched off until a WAHA server is configured.
+- **Sign-in:** email + password, Google, or a passkey (WebAuthn).
 
-1. **Install dependencies**
-   ```bash
-   pnpm install
-   ```
+[docs/STATUS.md](docs/STATUS.md) lists what is built, what was verified and what
+is still missing.
 
-2. **Set up environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your database and authentication settings
-   ```
+## Run it locally
 
-3. **Create the database schema**
-   ```bash
-   pnpm exec prisma migrate deploy
-   ```
-
-4. **Start development server**
-   ```bash
-   pnpm dev
-   ```
-
-5. **Open** [http://localhost:3000](http://localhost:3000)
-
-## ✅ Checks
+Requirements: Node 20+, pnpm 10 and PostgreSQL 15+.
 
 ```bash
-pnpm test        # money / balance unit tests (vitest)
-pnpm typecheck
-pnpm lint
+pnpm install
+cp .env.example .env     # set DATABASE_URL, DIRECT_URL, AUTH_SECRET, AUTH_URL
+pnpm db:deploy           # apply prisma/migrations
+pnpm dev                 # http://localhost:3000
 ```
 
-## 🛠️ Tech Stack
+Some features depend on optional settings:
 
-- **Framework**: Next.js 15.5.2 with App Router
-- **Database**: PostgreSQL with Prisma ORM
-- **Authentication**: Auth.js v5 with WebAuthn support
-- **Styling**: Tailwind CSS with custom design system
-- **Typography**: Geist font family
+- **Without `RESEND_API_KEY`:** no email is sent. In dev it is printed to the server
+  log instead, and the invite dialog shows a link you can copy.
+- **Without `CRON_SECRET`:** background jobs (recurring expenses, digests,
+  delivery retries) do not run.
 
-## 📚 Documentation
+All variables are described in [`.env.example`](.env.example) and
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
 
-Comprehensive documentation is available in the [`docs/`](./docs/) directory:
+## Checks
 
-- **[📖 Complete Documentation](./docs/README.md)** - Overview and navigation
-- **[📊 Project Status](./docs/STATUS.md)** - Current development status and next steps
-- **[📋 Development Roadmap](./docs/TODO.md)** - Complete feature roadmap
-- **[🚀 Quick Wins](./docs/QUICK_WINS.md)** - High-impact tasks for immediate implementation
-- **[🎨 Design System](./docs/design-system/)** - Tokens, UI components, layout and form rules
-- **[⚙️ Setup Guides](./docs/setup/)** - Installation and configuration
-- **[🔧 Troubleshooting](./docs/troubleshooting/)** - Common issues and solutions
+```bash
+pnpm test                   # vitest unit tests
+pnpm typecheck              # tsc --noEmit
+pnpm lint --max-warnings 0
+python3 scripts/smoke.py    # API smoke test against a running server
+scripts/qa/run-all.sh       # Playwright end-to-end flows + screenshots
+```
 
-## 🔗 Learn More
+See [docs/TESTING.md](docs/TESTING.md).
 
-- [Next.js Documentation](https://nextjs.org/docs)
-- [Auth.js Documentation](https://authjs.dev)
-- [Prisma Documentation](https://www.prisma.io/docs)
-- [Tailwind CSS Documentation](https://tailwindcss.com/docs)
+## Docs
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [STATUS](docs/STATUS.md): what works, what was verified, known gaps
+- [ARCHITECTURE](docs/ARCHITECTURE.md): code layout, data model, money rules,
+  notifications, auth
+- [API](docs/API.md): every HTTP endpoint
+- [OPERATIONS](docs/OPERATIONS.md): configuration, deploy, cron, backups
+- [TESTING](docs/TESTING.md): unit, smoke and browser tests
+- [Design system](docs/design-system/README.md): UI tokens, components, layout rules
+- [RFC](docs/RFC_EXPENSE_GROUP_SYSTEM.md): the original design proposal. It is
+  historical; the code is the source of truth.

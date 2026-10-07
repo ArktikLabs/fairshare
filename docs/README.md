@@ -1,105 +1,15 @@
-# FairShare Documentation
+# FairShare docs
 
-Complete documentation for the FairShare expense-sharing application, including setup guides, design system, troubleshooting, and development roadmap.
+| Doc | Read it to learn |
+| --- | --- |
+| [STATUS](./STATUS.md) | What works, what was verified and how, and what is still open |
+| [ARCHITECTURE](./ARCHITECTURE.md) | Code layout, data model, money math, auth, permissions, notifications, cron |
+| [API](./API.md) | Every HTTP endpoint, with its auth and request body |
+| [OPERATIONS](./OPERATIONS.md) | Environment variables, deploy, backups, cron and the outbox in production |
+| [TESTING](./TESTING.md) | Unit tests, the API smoke test and the Playwright browser flows |
+| [design-system](./design-system/README.md) | UI components, colours, words for money, layout rules |
+| [screenshots](./screenshots/) | The final run at 1280 px and 390 px (2026-10-08) |
+| [RFC_EXPENSE_GROUP_SYSTEM](./RFC_EXPENSE_GROUP_SYSTEM.md) | The original design proposal. It is historical, so check STATUS for what was actually built. |
 
-## 📖 Table of Contents
-
-- [🎨 Design System](#-design-system)
-- [⚙️ Setup & Implementation](#%EF%B8%8F-setup--implementation)
-- [🔧 Troubleshooting](#-troubleshooting)
-- [📋 Development Planning](#-development-planning)
-- [📱 Application Overview](#-application-overview)
-
-## 🎨 Design System
-
-See [design-system/README.md](./design-system/README.md): tokens, the `src/components/ui/` components, layout and form rules.
-
-## ⚙️ Setup & Implementation
-
-Step-by-step guides for setting up and implementing various features of the FairShare application.
-
-| File | Description |
-|------|-------------|
-| [Prisma Setup](./setup/PRISMA_SETUP.md) | Database configuration with Prisma and PostgreSQL |
-| [Auth.js v5 Migration](./setup/AUTHJS_V5_MIGRATION.md) | Complete authentication setup with Auth.js v5 |
-| [WebAuthn Implementation](./setup/WEBAUTHN_IMPLEMENTATION.md) | Passwordless authentication with WebAuthn |
-
-## 🔧 Troubleshooting
-
-Common issues and their solutions.
-
-| File | Description |
-|------|-------------|
-| [Auto Logout Fix](./troubleshooting/AUTO_LOGOUT_FIX.md) | Resolving auto-logout issues after WebAuthn authentication |
-
-## 📋 Development Planning
-
-Comprehensive roadmap and task management for FairShare development.
-
-| File | Description |
-|------|-------------|
-| [Development Roadmap](./TODO.md) | Complete feature roadmap organized by priority |
-| [Quick Wins](./QUICK_WINS.md) | High-impact, low-effort tasks for immediate implementation |
-
-## 📱 Application Overview
-
-FairShare is a modern expense-sharing application built with:
-
-- **Framework**: Next.js 15.5.2 with App Router
-- **Database**: PostgreSQL with Prisma ORM
-- **Authentication**: Auth.js v5 with WebAuthn support
-- **Styling**: Tailwind CSS with custom design system
-- **Typography**: Geist font family
-
-### Key Features
-
-- 🔐 **Secure Authentication** - Password and passwordless (WebAuthn) login
-- 💰 **Expense Tracking** - Track and split shared expenses (planned)
-- 👥 **Group Management** - Organize expenses by groups (planned)
-- 📱 **Responsive Design** - Works on all device sizes
-- ♿ **Accessibility** - WCAG compliant design system
-
-### Current Implementation Status
-
-| Feature | Status |
-|---------|--------|
-| User Authentication | ✅ Complete |
-| WebAuthn (Passkey) Support | ✅ Complete |
-| Account Management | ✅ Complete |
-| Design System | ✅ Complete |
-| Expense Management | 🚧 Planned |
-| Group Management | 🚧 Planned |
-| Settlement System | 🚧 Planned |
-
-## 🚀 Quick Start
-
-```bash
-# Install dependencies
-pnpm install
-
-# Set up environment variables
-cp .env.example .env
-
-# Start development server
-pnpm dev
-```
-
-## 🛠 Contributing
-
-When contributing to FairShare:
-
-1. Follow the established design system patterns
-2. Update documentation for any changes
-3. Test across different devices and browsers
-4. Ensure accessibility compliance
-5. Maintain consistent code quality
-
-## 📱 Browser Support
-
-- **Modern Browsers**: Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
-- **Mobile**: iOS Safari 14+, Chrome Mobile 90+
-- **Responsive**: Mobile-first approach with progressive enhancement
-
----
-
-_Last updated: August 28, 2025_
+Each page is meant to describe the code as it is. When a doc and the code disagree, the
+code is right, so update the doc in the same change.

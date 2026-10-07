@@ -26,7 +26,7 @@ explains how to use them.
 | `category-icon.tsx` | `CategoryIcon` | Icons come from the shared list in `src/lib/categories.ts`. |
 | `currency-select.tsx` | `CurrencySelect` | A searchable ISO 4217 list (`src/lib/currencies.ts`). |
 | `action-menu.tsx` | `ActionMenu` | A Radix dropdown behind a `⋯` button, for row actions on mobile. |
-| `dialog.tsx` | `ConfirmDialog` | Use it in place of `window.confirm()`. |
+| `dialog.tsx` | `ConfirmDialog` | Use it in place of `window.confirm()`. It renders with `role="alertdialog"`. |
 
 Money-specific helpers live in `src/components/money-bits.tsx`:
 
@@ -44,8 +44,11 @@ Money-specific helpers live in `src/components/money-bits.tsx`:
 ## Layout
 
 - Authenticated pages live in the `src/app/(app)/` route group. Their shared layout
-  (`src/components/app-shell.tsx`) puts a top nav on desktop and a bottom tab bar on mobile:
-  Home, Groups, Add expense (primary), Settle up, Account.
+  (`src/components/app-shell.tsx`) puts a top nav on desktop (Dashboard, Groups, Friends,
+  Expenses, Settle up, Activity, plus an Add expense button and the account menu) and a bottom
+  tab bar on mobile (Home, Groups, Add, Settle up, Activity). Account, notifications and
+  insights live in the avatar menu on both. On mobile, Groups and Friends share a tab with a
+  Groups | Friends switch.
 - Content width is `max-w-5xl` with `px-4 sm:px-6`. Pages start with `PageHeader`.
   Sub-pages show a back link (`ChevronLeft` + parent name).
 - Public pages (landing, privacy, terms) use `src/components/site/site-chrome.tsx`.
@@ -58,4 +61,26 @@ Money-specific helpers live in `src/components/money-bits.tsx`:
 - Validation runs on the client before submit, and errors appear inline under the field via
   `Field error`. Never use `alert()`.
 - Submit buttons stay disabled until the form is valid, and the reason shows next to the button.
-- Amounts are sent to the API rounded to cents.
+- Amounts are sent to the API rounded to the currency's minor unit (cents, or whole units for
+  IDR / JPY / KRW).
+
+## Words for money
+
+- Running balances say **owe / are owed** ("You owe Ani IDR 50,000", "Budi owes you").
+- A single expense's effect on you says **lent / borrowed** ("you lent IDR 37,500").
+  The activity feed, detail pages and lists use the same pair; never "get back".
+- Keep the verb visible when a name is long: truncate the name, not "pays you".
+
+## Accessibility
+
+- Everything focusable shows a ring on keyboard focus: a global `:focus-visible` outline in
+  `globals.css`, plus the component rings.
+- Dates and times rendered on the server use the viewer's saved time zone
+  (`formatDateTime(date, tz)`). Calendar dates (expense dates) are read in UTC, so they never
+  shift by a day.
+- Anything that depends on "now" or on the browser's zone must render only after
+  hydration, otherwise React reports a hydration mismatch (#418).
+  - For a timestamp's date in a client component, use `<LocalDate value=…>` from
+    `components/ui/local-date.tsx`.
+  - Otherwise use `useHydrated()` or `useSyncExternalStore` with a server snapshot.
+  - Never call `formatDate(timestamp)` directly in a client component.

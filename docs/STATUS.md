@@ -1,166 +1,271 @@
-# Project Status
+# Status
 
-## Done
+Last updated 2026-10-08, after overnight batch 4.
 
-- **Auth**: email/password, Google, passkeys (WebAuthn). Passkey sign-in is
-  verified server-side and exchanged for a one-time ticket (no shared magic
-  password). Registration challenges are stored server-side.
-- **Groups**: create, list (`/groups`), edit, members and roles
-  (owner/admin/member), invite by email, cancel invites, leave group (only
-  once settled), last-admin protection.
-- **Ghost users**: people invited by email can be put on expenses before they
-  join. On sign-up they claim the same account and see their balance after
-  accepting the invite.
-- **Expenses**: equal / exact / percentage / shares / itemized splits, multiple
-  payers, edit and delete (payer or group admin). All split math runs in
-  integer cents so parts always add up to the total.
-- **Balances & settle up**: per-group ledger (expenses + itemized splits +
-  recorded payments), minimal payment suggestions, "Mark as paid" records a
-  payment, payment history, cross-group overview (`/settlements`, dashboard).
-- **Access control**: every group/expense/settlement endpoint checks active
-  membership; participants must belong to the group.
-- **App shell & design system**: one authenticated layout (`src/app/(app)/`)
-  with top nav on desktop and a bottom tab bar on mobile, in-shell 404 and
-  error pages, shared UI components (`src/components/ui/`), lucide icons,
-  indigo brand colour, emerald/rose money colours. See `docs/design-system/`.
-- **Dashboard**: per-currency owe / owed / net, per-group balances, who-pays-
-  whom shortcuts, recent expenses with your share, first-run checklist.
-- **Add expense**: all members and pending invitees ticked by default, payer =
-  you, local date, category guessed from the description, live remainder for
-  every split mode with submit disabled until balanced, inline errors,
-  cents-exact payloads. `/expenses/create` remembers the last group.
-- **Expenses list**: filters (group, category, date range, search), your share
-  per row, cursor pagination ("Load more"). API: `GET /api/expenses` returns
-  `{ items, nextCursor }` and accepts `limit`, `cursor`, `groupId`,
-  `category`, `from`, `to`, `q`.
-- **Invites**: re-inviting a pending email keeps the existing link, extends the
-  expiry and returns `alreadyInvited: true`.
-- **Currencies & categories**: one ISO currency list (`src/lib/currencies.ts`),
-  validated server-side; new groups default to your preferred currency. One
-  category list with labels and icons (`src/lib/categories.ts`).
-- **Account**: profile, default currency, time zone (defaults from the
-  browser), password, passkeys, JSON export, delete account (blocked while you
-  have open balances).
-- **Public pages**: landing, `/privacy`, `/terms`.
-- **Email**: invite and password-reset emails through Resend when configured,
-  otherwise logged; the UI always shows a copyable invite link.
-- **Expense detail** (`/expenses/[id]`): total, who paid, each person's share
-  (item splits folded in) with owes / gets back, per-item breakdown, category,
-  date, notes, added / last edited by, receipt, comments and edit history.
-  Every expense row (dashboard, group, group expenses, `/expenses`) links here.
-- **Edit expense** (`/expenses/[id]/edit`): the add-expense form in edit mode.
-  Everything is editable, including amount, payers, split mode, participants
-  and items. `PUT /api/expenses/[id]` validates membership and replaces payers,
-  splits and items in one transaction (`src/lib/expense-write.ts` +
-  `expense-compute.ts`, shared with create). Allowed for the creator, any payer
-  or a group admin (`src/lib/permissions.ts`, used by API and UI alike).
-- **Delete / restore**: delete is soft; `POST /api/expenses/[id]/restore`
-  undoes it for 30 days (detail page, activity feed, Undo in the list).
-- **Receipts**: JPEG/PNG/WebP up to 8 MB (HEIC rejected with a hint), resized
-  to max 2000 px and re-encoded as JPEG with EXIF stripped (sharp), plus a
-  thumbnail. Stored under `UPLOAD_DIR/receipts/` (default `./uploads`, outside
-  `public/`) and served only by `GET /api/expenses/[id]/receipt[?size=thumb]`
-  after a membership check. Add / replace / remove from the form or the detail
-  page.
-- **Comments**: members comment on expenses and delete their own
-  (`/api/expenses/[id]/comments`).
-- **Payments**: edit amount / method and delete with undo
-  (`/api/groups/[id]/settlements/[settlementId]`, PATCH / DELETE / POST
-  `{action:"restore"}`), by the payer, the receiver or an admin.
-- **Group settings** (`/groups/[id]/settings`): rename, description, currency
-  (only while the group has no expenses or payments), simplify debts on/off
-  (off = plain pairwise net debts, see `pairwiseSettlements`), archive /
-  unarchive (archived = read-only, listed separately on `/groups`), leave
-  (settled, not the last admin), delete (owner only, everyone settled, type the
-  group name). Members card lives here too.
-- **Activity feed**: one `Activity` table written only through
-  `recordActivity()` (`src/lib/activity.ts`), always inside the same
-  transaction as the change. Payload snapshots names and amounts (plus the
-  per-person impact for expenses) so lines stay readable later and
-  notifications can reuse them. Events: expense created / edited (with a field
-  diff) / deleted / restored, payment recorded / edited / deleted / restored,
-  member invited / joined / left / removed / role changed, group created /
-  renamed / settings changed / archived / unarchived, comment added. Lines are
-  written for the reader by `describeActivity()` (`activity-format.ts`).
-  `/activity` (nav + mobile tab) and a per-group section; API
-  `GET /api/activity?groupId=&cursor=&limit=` returns `{ items, nextCursor }`.
+Production (https://fairshare.arktik.id) runs commit `74fb079`, the end of batch 3.
+The batch-4 commits are local only. They have not been pushed or deployed.
 
-- **Batch 3**
-  - Money: amounts use each currency's minor unit (`Intl` en-US, IDR/JPY/KRW
-    without decimals). Storage stays in cents; zero-decimal currencies are
-    split in whole units (`minorUnitCents`, `allocateInUnits`).
-  - Notifications (`src/lib/notify/`): `recordActivity()` schedules
-    `dispatchActivity()` after the response (never blocks or fails it). It
-    picks recipients (never the actor; edits only notify people whose share
-    changed), checks per-user, per-event, per-channel preferences
-    (`UserNotificationSetting`, Account > Notifications) and queues rows in the
-    `Notification` outbox (status, attempts, lastError, dedupeKey). Sending
-    retries with backoff (5 attempts). Weekly email digest option
-    (`UserPreferences.emailDigest`).
-  - Email via Resend (`mailer.ts`): HTML + text, `List-Unsubscribe` header and a
-    signed one-click unsubscribe link per event type (`/unsubscribe?t=`).
-  - WhatsApp via WAHA (`notify/whatsapp-waha.ts`): `POST /api/sendText`
-    `{session, chatId: "<digits>@c.us", text}` with `X-Api-Key`, plus
-    `GET /api/contacts/check-exists`. Disabled (UI says unavailable) without
-    `WAHA_URL`/`WAHA_API_KEY`. Phone number in Account (country selector, E.164),
-    verified with a 6-digit code over WhatsApp (hashed, 10 min, 5 tries,
-    60 s between sends, 5 per day). Nothing else goes to unverified numbers.
-  - Payment reminders: "Remind" on settle-up suggestions (creditor -> debtor),
-    once per 24 h per pair per group (`PaymentReminder`), recorded in activity.
-    Optional weekly automatic reminders per group (group settings, off).
-  - Cron: `POST /api/cron/run` with `Authorization: Bearer $CRON_SECRET`:
-    recurring expenses, auto reminders, digests, outbox. Idempotent (unique
-    keys). Body `{ "now": "..." }` fakes the clock outside production.
-    `ops/fairshare-cron.{service,timer}` every 5 min (not installed).
-  - Recurring expenses: Repeat (weekly, 2 weeks, monthly, yearly, end date) on
-    create/edit; `RecurringExpense` template; occurrence n is computed from the
-    start date (Jan 31 -> Feb 28/29 -> Mar 31) in the owner's time zone; created
-    as the owner, unique per (template, date). Pause / resume / stop on the
-    expense page; list in group settings.
-  - Friends: hidden DIRECT group per pair (`Group.kind`, `directKey`), excluded
-    from group lists. `/friends` (net per friend across direct and shared
-    groups, add by email which invites if no account), `/friends/[id]`
-    (balance, settle up, remind, shared expenses, add expense). Desktop nav
-    link; on mobile a Groups | Friends switch.
-  - Multi-currency: an expense can be in another currency; stored original
-    amount + currency, rate, rate date, source; rows converted to the group
-    currency (largest remainder in the group's minor unit). Rates from
-    Frankfurter (ECB) then open.er-api.com, cached per day in `ExchangeRate`;
-    manual rate when both fail. Detail shows both amounts.
-  - CSV: `/api/groups/[id]/export.csv` (share column per member, payments
-    section) and `/api/expenses/export.csv` (my expenses with my share). BOM,
-    RFC 4180, formula-injection safe. Buttons in group settings and /expenses.
-  - `/insights`: my share by month and category per currency, group and date
-    filters, CSS bar charts with a table fallback. In the account menu.
-  - Activity: "Budi paid you IDR 100,000" no longer repeats "you received".
+## Built and working
 
-## Checks
+Unless an item says otherwise, it has been exercised end to end: through the UI by the
+Playwright flows, and through the API by the smoke test.
 
-- `pnpm test`: unit tests for split and balance math, the add-expense form
-  helpers (`split-form.ts`, including edit-mode prefill), currencies,
-  categories, overview totals, simplify debts on/off, edit recompute and diff,
-  permission rules and activity lines (`batch2.test.ts`), recurrence dates,
-  currency conversion, WAHA adapter (mocked fetch), notification routing,
-  unsubscribe tokens, insights and minor-unit formatting (`batch3.test.ts`),
-  CSV escaping (`batch3-csv.test.ts`)
-- `pnpm typecheck`, `pnpm lint`, `next build`: clean
+### Accounts and sign-in
 
-## Not done / next
+- Register, sign in, sign out, change password, forgot password and reset password.
+  - Reset links last 1 h.
+  - A dead link says so before you type a new password.
+- Passkeys:
+  - Register one from Account, then sign in with email + passkey.
+  - The passkey is verified on the server and exchanged for a one-time ticket.
+  - **Not exercised by the automated flows**, because there is no virtual authenticator.
+- Google sign-in exists in code. It is **not configured in production** and is untested.
+- Account page:
+  - Name, default currency, and time zone (defaulted from the browser).
+  - Data export (JSON).
+  - Delete account, blocked while you have open balances.
+- Public pages: landing, `/privacy`, `/terms`.
+- Protected pages redirect to sign-in with a safe `callbackUrl`.
+- Every group, expense and payment endpoint checks active membership, and participants
+  must belong to the group.
 
-- WhatsApp has only been tested against a mocked WAHA; first real use needs a
-  WAHA server and `WAHA_*` env
-- Existing expenses from before activity tracking have no history (no backfill)
+### Dashboard
 
-## Configuration
+- Totals per currency: what you owe, what you are owed, and net.
+- Balance per group.
+- "Who pays whom" shortcuts.
+- Recent expenses with your share.
+- A first-run checklist.
 
-- `UPLOAD_DIR`: where receipt images are written (default `./uploads`). Must be
-  persistent and outside `public/`; in production
-  `~/docker-apps/fairshare-prod/uploads`.
-- `CRON_SECRET` (16+ chars): bearer token for `POST /api/cron/run`. Without it
-  the endpoint answers 401 and nothing runs in the background (notifications
-  are still sent right after each action).
-- `CRON_ALLOW_FAKE_NOW=1`: lets the cron body fake the clock in production
-  (testing only).
-- `WAHA_URL`, `WAHA_API_KEY`, `WAHA_SESSION` (default `default`): WhatsApp via
-  WAHA. Leave empty to disable WhatsApp.
-- `RESEND_API_KEY`, `EMAIL_FROM`: email (without them, mail is logged in dev).
+### Groups and people
+
+- Group settings:
+  - Create, rename and describe a group.
+  - Change the currency, only while the group is empty.
+  - Turn simplify debts on or off.
+- Archive (read-only) and unarchive.
+- Delete: owner only, everyone settled, and you type the group name to confirm.
+- Roles are owner, admin and member.
+  - Admins invite and remove people.
+  - The owner's role cannot be changed.
+  - Plain members only see the "Leave" part of the danger zone.
+- Invites by email:
+  - Re-inviting keeps the same link and extends the expiry.
+  - The dialog always shows the link to copy.
+  - Logged-out invitees can register or sign in, then come back to the invite.
+- Ghost members:
+  - Invited people can be put on expenses straight away.
+  - When they register with that email, they take over the account and its balance.
+- Leaving needs a settled balance, and the last admin cannot leave.
+- Friends:
+  - `/friends` shows your net balance with each person, across every shared group plus
+    the 1:1 ledger.
+  - Add a friend by email. They get an invite if they have no account.
+  - `/friends/:id` is a 1:1 ledger where you can add an expense, settle up and send a
+    reminder.
+
+### Expenses
+
+- Split methods: equal, exact, percentage, shares, and per-item (itemized). There can be
+  one or more payers.
+- The add form:
+  - Shows what is left to assign, and stays disabled until it balances.
+  - Ticks everyone in the group by default.
+  - Sets the date to today in your local time zone.
+  - Guesses the category from the description.
+  - Remembers the last group.
+- Math is done in integer minor units, so the parts always add up exactly. IDR, JPY and
+  KRW are split in whole units.
+- Foreign currency:
+  - The rate comes from Frankfurter (ECB), with open.er-api.com as a fallback. It is
+    cached per day.
+  - If both fail, you type a rate. Both amounts are shown.
+  - The browser flows use a manual rate. The online lookup is covered by unit tests with
+    a mocked `fetch`.
+- The detail page shows who paid, each share, items, category, notes, receipt, comments
+  and edit history. Timestamps use your saved time zone.
+- Full edit, including amount, payers, split and items.
+  - Allowed for the creator, any payer, or an admin.
+  - Every change is recorded with a field diff.
+- Soft delete, with restore for 30 days from the detail page, the list's Undo, or the
+  activity feed.
+- Receipts:
+  - JPEG, PNG or WebP up to 8 MB. HEIC is refused with a hint.
+  - Images are resized, EXIF is stripped, and a thumbnail is made.
+  - Files are only served to group members.
+- Comments: members can comment and delete their own.
+- Recurring expenses:
+  - Weekly, every 2 weeks, monthly or yearly, with an optional end date.
+  - Month-end dates stay correct (Jan 31 → Feb 28 → Mar 31), in the owner's time zone.
+  - Pause, resume or stop.
+  - Created by the cron job. The smoke test checks this with a faked clock.
+- `/expenses`:
+  - Search and filters (group, category, date range).
+  - "Load more" paging.
+  - CSV export.
+
+### Settling up
+
+- Balances per group:
+  - Fewest-payments suggestions when simplify is on, or plain pairwise debts when it is
+    off.
+  - The suggestions always clear every balance exactly.
+- Record a full or partial payment, with a method and a note. Edit or delete it, with
+  Undo for 30 days.
+- `/settlements` and the dashboard show who pays whom across every group.
+- Reminders:
+  - Sent from a settle-up row.
+  - At most once per pair every 24 h.
+  - Optional weekly automatic reminders per group.
+
+### Activity, notifications, insights
+
+- Activity feed:
+  - Covers every change to expenses, payments, members and groups, plus comments,
+    reminders and friends.
+  - Appears on `/activity` and on each group page, with "Load more" and inline Undo.
+  - Wording: balances say "owe / are owed"; a single expense's effect says
+    "lent / borrowed".
+- Email notifications (Resend):
+  - Each event can be turned on or off. The weekly digest is opt-in.
+  - One-click unsubscribe per event, via `List-Unsubscribe` and a signed link.
+  - The outbox retries with backoff (5 attempts).
+  - Production has Resend configured. On 2026-10-08 the production outbox was empty,
+    with two real users.
+- **Reserved test domains are never mailed.** These are example.com/net/org and the
+  `.test`, `.example`, `.invalid` and `.localhost` domains. Their rows are marked
+  `SKIPPED`.
+- WhatsApp (WAHA):
+  - Built: a number field with country picker, a 6-digit verification code, and
+    per-event switches.
+  - **Turned off everywhere**, because no WAHA server is configured. The UI says "not
+    available", and the number can still be saved.
+  - Tested only against a mocked WAHA.
+- `/insights`:
+  - Your share by month and by category, per currency, with filters.
+  - CSS bars with a table fallback.
+- CSV exports:
+  - Per group: one share column per member, plus payments.
+  - All your expenses.
+  - Files have a BOM, follow RFC 4180, and are safe against formula injection.
+
+### Platform
+
+- One app shell:
+  - Desktop: a top nav and an account menu.
+  - Mobile: a bottom tab bar (Home, Groups, Add, Settle up, Activity), with a
+    Groups | Friends switch.
+  - 404 and error pages are inside the shell.
+- Every page is checked for horizontal overflow at 390 px and 1280 px. The stress case
+  uses 10 members, IDR 1,000,000,000 and long names.
+- Accessibility:
+  - Every control has a visible keyboard focus ring.
+  - Confirm dialogs use `role="alertdialog"`.
+  - Every visible control has an accessible name, and this is checked.
+- The light theme stays on when the OS is in dark mode. There is no dark theme.
+- Production setup:
+  - systemd units and Caddy (`noindex`).
+  - Cron every 5 min.
+  - A nightly backup of the database and receipts, kept 14 days on the same VPS.
+  - See [OPERATIONS](./OPERATIONS.md).
+
+## Verification for this batch (2026-10-08)
+
+| Check | Result |
+| --- | --- |
+| `pnpm test` | 130 tests in 9 files pass, also with `TZ=America/Los_Angeles` |
+| `pnpm typecheck`, `pnpm lint --max-warnings 0`, `next build` | clean |
+| `scripts/smoke.py` against `next dev` | 219/219 checks pass |
+| `scripts/smoke.py` against `next start` | 214/219. The 5 misses are expected: the phone test code and the faked cron clock are turned off in production mode. |
+| Playwright flows at 1280 px | all 5 chunks pass |
+| Playwright flows at 390 px | all 5 chunks pass |
+
+How the flows were run:
+
+- Chunk by chunk, against `next start`.
+- The final run was a clean full run at both widths (A 24, B 29, C 15, D 35, E 15
+  checks per width) on the final build.
+- Screenshots from the final run are in `docs/screenshots/`.
+
+## Fixed in this batch
+
+### Mail
+
+- Nothing is ever sent to reserved test domains. This is enforced in `deliverMail()` and
+  in the outbox.
+
+### Hydration and time zones
+
+- **`/account` hydration error (React #418).** Two causes, both fixed with hydration-safe
+  rendering:
+  - The time-zone list depended on the browser's zone during server render.
+  - Dates rendered on the server used the server's time zone.
+- **Group page hydration error (React #418).** It was intermittent: seen once in the
+  1280 run.
+  - Probable cause, found by reading the code rather than by reproducing it:
+    - Payment dates in settle up were formatted in the server's zone (Asia/Shanghai) on
+      the server, and in the browser's zone during hydration. The two disagree for part
+      of every day.
+    - The reminder cooldown check also compared against "now" during render.
+  - Fix: timestamps in client components now go through `<LocalDate>`, which renders UTC
+    first and switches to local time after hydration.
+  - Verified with a unit test, and by reloading a group page with a payment at 16:30 UTC
+    in browsers set to Los Angeles and Jakarta: no errors.
+  - Before the fix, the same setup was not re-run, so the original failure was never
+    reproduced on demand.
+- **Expense detail times** were shown in the server's time zone. They now use the
+  viewer's saved time zone.
+
+### Broken behaviour
+
+- **`/insights` hung.** next/link prefetched the CSV route behind the download link. It
+  is now a plain download link.
+- **Reset password.** An expired or used link now says so up front, instead of failing
+  after the user types a new password.
+- **`POST /api/groups/:id/join`** accepted an invite token from another group, then
+  answered 400. It now checks the token first and does nothing.
+- **WhatsApp turned off.** Saving a number returned a 503, which showed up as a console
+  error. It now returns 200 with `sent: false` and a message.
+
+### Wording and permissions
+
+- The activity feed said "you get back" and "you owe" about one expense, while the rest of
+  the app said "lent / borrowed". It now matches.
+- Re-invite wording is clearer, and the group header shows "· N invited".
+- Plain members were shown the owner-only "Delete group" row. It is now hidden, and the
+  card title matches the role.
+
+### Layout and focus
+
+- A long payer name pushed "pays you" or "you" off the row on the dashboard and in
+  settle up.
+- Long group names made the dashboard wider than a 390 px screen. Grid columns can now
+  shrink (`min-w-0`).
+- Keyboard focus was invisible on list-row links and plain text buttons. A global
+  `:focus-visible` ring fixes it.
+
+### Cleanup
+
+- Removed the unused `theme-provider.tsx` and `useUserPreferences.ts`. Stale docs were
+  rewritten or deleted.
+- The test tooling is now in the repo: `scripts/smoke.py` and `scripts/qa/`.
+
+## Known gaps and open issues
+
+- **Not deployed.** Production is missing the batch-4 commits. Deploy with
+  `ops/deploy.sh` once they are pushed. No migration is needed.
+- **Passkeys** have no automated test, and **Google sign-in** is untested.
+- **WhatsApp** has never talked to a real WAHA server.
+- **Unused leftovers from the RFC.** There is no dark theme. These are stored but
+  unused:
+  - the `theme` and `language` preferences
+  - the `NotificationTemplate` and `GroupSetting` tables
+- **Weekly digest timing** is a rolling 7 days per user, not a fixed weekday or local
+  time.
+- **Older expenses have no history**, because they predate activity tracking.
+- **Backups** stay on the same VPS. There is no off-site copy.
+- **Receipts:** no OCR, and only one receipt per expense.
+- **No email verification.** Sign-up does not verify the address; the `PENDING` user
+  status is unused.
+- **Smoke-test data is not cleaned up.** Run the smoke test only against a throwaway
+  database.
