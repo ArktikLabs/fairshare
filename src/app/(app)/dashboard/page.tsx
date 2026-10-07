@@ -133,13 +133,17 @@ export default async function DashboardPage() {
                 ) : (
                   <ul className="divide-y divide-slate-100">
                     {recent.map((e) => (
-                      <li key={e.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
+                      <li key={e.id} className="relative flex items-center gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5">
                         <CategoryIcon category={e.category} />
                         <div className="min-w-0 flex-1">
-                          <p className="line-clamp-2 break-words text-sm font-medium text-slate-900 sm:truncate">{e.description}</p>
+                          <p className="line-clamp-2 break-words text-sm font-medium text-slate-900 sm:truncate">
+                            <Link href={`/expenses/${e.id}`} className="after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand-500">
+                              {e.description}
+                            </Link>
+                          </p>
                           <p className="truncate text-xs text-slate-500">
                             {e.group && (
-                              <Link href={`/groups/${e.group.id}`} className="hover:underline">
+                              <Link href={`/groups/${e.group.id}`} className="relative z-10 hover:underline">
                                 {e.group.name}
                               </Link>
                             )}

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Plus, Receipt, Search, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Receipt, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type { SerializedExpense } from "@/lib/expense-serialize";
 import { CATEGORIES } from "@/lib/categories";
 import { formatDate } from "@/lib/utils";
@@ -47,6 +48,8 @@ export function ExpenseList({
   const [toDelete, setToDelete] = useState<SerializedExpense | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState("");
+  const [undo, setUndo] = useState<SerializedExpense | null>(null);
+  const router = useRouter();
   const req = useRef(0);
 
   // Debounce the search box
@@ -106,12 +109,27 @@ export function ExpenseList({
         setError(body.error || "Could not delete the expense");
       } else {
         setItems((xs) => xs.filter((x) => x.id !== toDelete.id));
-        setNotice(`Deleted "${toDelete.description}"`);
+        setNotice("");
+        setUndo(toDelete);
       }
     } finally {
       setDeleting(false);
       setToDelete(null);
     }
+  };
+
+  const restore = async () => {
+    if (!undo) return;
+    const res = await fetch(`/api/expenses/${undo.id}/restore`, { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(body.error || "Could not restore the expense");
+      return;
+    }
+    const back = undo;
+    setUndo(null);
+    setNotice(`Restored "${back.description}"`);
+    setItems((xs) => [back, ...xs].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)));
   };
 
   const set = (k: keyof Filters) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -183,6 +201,16 @@ export function ExpenseList({
 
       {error && <Alert tone="error">{error}</Alert>}
       {notice && <Alert tone="success">{notice}</Alert>}
+      {undo && (
+        <Alert tone="warning">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>Deleted &quot;{undo.description}&quot;</span>
+            <Button size="sm" variant="secondary" onClick={restore}>
+              <RotateCcw /> Undo
+            </Button>
+          </div>
+        </Alert>
+      )}
 
       <Card>
         {loading ? (
@@ -225,14 +253,18 @@ export function ExpenseList({
                     : e.payers[0].user.name || e.payers[0].user.email
                   : `${e.payers.length} people`;
               return (
-                <li key={e.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
+                <li key={e.id} className="relative flex items-center gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5">
                   <CategoryIcon category={e.category} />
                   <div className="min-w-0 flex-1">
-                    <p className="line-clamp-2 break-words text-sm font-medium text-slate-900 sm:truncate">{e.description}</p>
+                    <p className="line-clamp-2 break-words text-sm font-medium text-slate-900 sm:truncate">
+                      <Link href={`/expenses/${e.id}`} className="after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand-500">
+                        {e.description}
+                      </Link>
+                    </p>
                     <p className="line-clamp-2 text-xs text-slate-500 sm:truncate">
                       {!fixedGroupId && e.group && (
                         <>
-                          <Link href={`/groups/${e.group.id}`} className="hover:underline">
+                          <Link href={`/groups/${e.group.id}`} className="relative z-10 hover:underline">
                             {e.group.name}
                           </Link>
                           {" · "}
@@ -243,10 +275,15 @@ export function ExpenseList({
                   </div>
                   <ExpenseShare expense={e} currency={currencyOf(e)} />
                   {e.canEdit ? (
-                    <ActionMenu
-                      label={`Actions for ${e.description}`}
-                      actions={[{ label: "Delete", icon: <Trash2 />, danger: true, onSelect: () => setToDelete(e) }]}
-                    />
+                    <span className="relative z-10">
+                      <ActionMenu
+                        label={`Actions for ${e.description}`}
+                        actions={[
+                          { label: "Edit", icon: <Pencil />, onSelect: () => router.push(`/expenses/${e.id}/edit`) },
+                          { label: "Delete", icon: <Trash2 />, danger: true, onSelect: () => setToDelete(e) },
+                        ]}
+                      />
+                    </span>
                   ) : (
                     <span className="w-8" aria-hidden />
                   )}
@@ -268,7 +305,7 @@ export function ExpenseList({
         open={toDelete !== null}
         onOpenChange={(o) => !o && setToDelete(null)}
         title="Delete this expense?"
-        description={toDelete ? `"${toDelete.description}" is removed and balances are recalculated.` : undefined}
+        description={toDelete ? `"${toDelete.description}" stops counting towards balances. You can undo this, or restore it from the activity feed for 30 days.` : undefined}
         confirmLabel="Delete"
         danger
         busy={deleting}

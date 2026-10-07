@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ChevronLeft, Plus, Receipt } from "lucide-react";
+import { ChevronLeft, Plus, Receipt, Settings } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { loadGroupSettlements, loadPaymentHistory } from "@/lib/group-ledger";
@@ -13,6 +13,8 @@ import { CategoryIcon } from "@/components/ui/category-icon";
 import { ExpenseShare } from "@/components/money-bits";
 import { BalancesCard, PaymentsCard, SettleUpCard } from "@/components/group/settle-up";
 import { MembersCard, type MemberRow } from "@/components/group/members-card";
+import { ActivityFeed } from "@/components/activity/activity-feed";
+import { loadFeedPage } from "@/lib/activity-feed";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -76,9 +78,10 @@ export default async function GroupDetailPage({ params }: Props) {
     );
   }
 
-  const [ledger, history, expensesRaw, expenseCount] = await Promise.all([
+  const archived = Boolean(group.archivedAt);
+  const [ledger, history, expensesRaw, expenseCount, feed] = await Promise.all([
     loadGroupSettlements(group.id),
-    loadPaymentHistory(group.id),
+    loadPaymentHistory(group.id, 50, { viewerId: userId, isAdmin, archived }),
     prisma.expense.findMany({
       where: { groupId: group.id, isDeleted: false },
       include: expenseListInclude,
@@ -86,6 +89,7 @@ export default async function GroupDetailPage({ params }: Props) {
       take: 8,
     }),
     prisma.expense.count({ where: { groupId: group.id, isDeleted: false } }),
+    loadFeedPage(userId, group.id, 8),
   ]);
   if (!ledger) notFound();
   const adminSet = new Set(isAdmin ? [group.id] : []);
@@ -118,11 +122,31 @@ export default async function GroupDetailPage({ params }: Props) {
           </>
         }
         actions={
-          <ButtonLink href={`/groups/${group.id}/expenses/create`}>
-            <Plus /> Add expense
-          </ButtonLink>
+          <>
+            <ButtonLink href={`/groups/${group.id}/settings`} variant="secondary" aria-label="Group settings">
+              <Settings /> <span className="hidden sm:inline">Settings</span>
+            </ButtonLink>
+            {!archived && (
+              <ButtonLink href={`/groups/${group.id}/expenses/create`}>
+                <Plus /> Add expense
+              </ButtonLink>
+            )}
+          </>
         }
       />
+
+      {archived && (
+        <Alert tone="info" className="mb-5">
+          <span className="font-medium">Archived.</span> This group is read-only: no new expenses, edits or payments.{" "}
+          {isAdmin ? (
+            <Link href={`/groups/${group.id}/settings`} className="font-medium underline">
+              Unarchive in settings
+            </Link>
+          ) : (
+            "An admin can unarchive it."
+          )}
+        </Alert>
+      )}
 
       <div
         className={
@@ -148,6 +172,7 @@ export default async function GroupDetailPage({ params }: Props) {
             ledger={ledger}
             currentUserId={userId}
             isAdmin={isAdmin}
+            readOnly={archived}
           />
           <Card>
             <CardHeader
@@ -165,11 +190,13 @@ export default async function GroupDetailPage({ params }: Props) {
               <EmptyState
                 icon={<Receipt />}
                 title="No expenses yet"
-                description="Add the first one and FairShare works out who owes whom."
+                description={archived ? "This group is archived." : "Add the first one and FairShare works out who owes whom."}
                 action={
-                  <ButtonLink href={`/groups/${group.id}/expenses/create`} size="sm">
-                    <Plus /> Add expense
-                  </ButtonLink>
+                  archived ? undefined : (
+                    <ButtonLink href={`/groups/${group.id}/expenses/create`} size="sm">
+                      <Plus /> Add expense
+                    </ButtonLink>
+                  )
                 }
               />
             ) : (
@@ -182,22 +209,24 @@ export default async function GroupDetailPage({ params }: Props) {
                         : e.payers[0].user.name || e.payers[0].user.email
                       : `${e.payers.length} people`;
                   return (
-                    <li key={e.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
-                      <CategoryIcon category={e.category} />
-                      <div className="min-w-0 flex-1">
-                        <p className="line-clamp-2 break-words text-sm font-medium text-slate-900 sm:truncate">{e.description}</p>
-                        <p className="truncate text-xs text-slate-500">
-                          {payer} paid · {formatDate(e.date)}
-                        </p>
-                      </div>
-                      <ExpenseShare expense={e} currency={group.currency} />
+                    <li key={e.id}>
+                      <Link href={`/expenses/${e.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5">
+                        <CategoryIcon category={e.category} />
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-2 break-words text-sm font-medium text-slate-900 sm:truncate">{e.description}</p>
+                          <p className="truncate text-xs text-slate-500">
+                            {payer} paid · {formatDate(e.date)}
+                          </p>
+                        </div>
+                        <ExpenseShare expense={e} currency={group.currency} />
+                      </Link>
                     </li>
                   );
                 })}
               </ul>
             )}
           </Card>
-          <PaymentsCard history={history} currency={group.currency} currentUserId={userId} />
+          <PaymentsCard groupId={group.id} history={history} currency={group.currency} currentUserId={userId} />
         </div>
         <div className="min-w-0 space-y-5 lg:col-span-2">
           <BalancesCard ledger={ledger} currency={group.currency} currentUserId={userId} />
@@ -207,8 +236,16 @@ export default async function GroupDetailPage({ params }: Props) {
             currency={group.currency}
             members={members}
             currentUserId={userId}
-            isAdmin={isAdmin}
+            isAdmin={isAdmin && !archived}
           />
+          <Card id="activity" className="scroll-mt-20">
+            <CardHeader title="Activity" description="Recent changes in this group" />
+            {feed.items.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-slate-500 sm:px-5">Nothing recorded yet.</p>
+            ) : (
+              <ActivityFeed initial={feed.items} nextCursor={feed.nextCursor} groupId={group.id} />
+            )}
+          </Card>
         </div>
       </div>
     </>

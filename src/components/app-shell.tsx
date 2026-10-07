@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
+  Activity,
   ArrowLeftRight,
   Home,
   LogOut,
@@ -32,6 +33,7 @@ const DESKTOP_NAV = [
   { href: "/groups", label: "Groups", match: ["/groups"] },
   { href: "/expenses", label: "Expenses", match: ["/expenses"] },
   { href: "/settlements", label: "Settle up", match: ["/settlements"] },
+  { href: "/activity", label: "Activity", match: ["/activity"] },
 ];
 
 function isActive(pathname: string, match: string[]) {
@@ -54,7 +56,7 @@ export function AppShell({
     { href: "/groups", label: "Groups", icon: Users, active: isActive(pathname, ["/groups"]) },
     { href: "/expenses/create", label: "Add", icon: Plus, active: onCreate, primary: true },
     { href: "/settlements", label: "Settle up", icon: ArrowLeftRight, active: isActive(pathname, ["/settlements"]) },
-    { href: "/account", label: "Account", icon: UserRound, active: isActive(pathname, ["/account"]) },
+    { href: "/activity", label: "Activity", icon: Activity, active: isActive(pathname, ["/activity"]) },
   ];
 
   return (
@@ -109,7 +111,10 @@ export function AppShell({
             <DropdownMenu.Root modal={false}>
               <DropdownMenu.Trigger
                 aria-label="Account menu"
-                className="hidden rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 md:inline-flex"
+                className={cn(
+                  "inline-flex rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
+                  isActive(pathname, ["/account"]) && "ring-2 ring-brand-500 ring-offset-2 md:ring-0 md:ring-offset-0"
+                )}
               >
                 <Avatar name={displayName} />
               </DropdownMenu.Trigger>
