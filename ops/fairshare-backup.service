@@ -1,7 +1,7 @@
 [Unit]
-Description=FairShare prod: nightly pg_dump (keeps 14 days)
+Description=FairShare prod: nightly pg_dump + receipt files (keeps 14 days)
 
 [Service]
 Type=oneshot
 Environment=PATH=/usr/bin:/bin DOCKER_HOST=unix:///run/user/1000/docker.sock
-ExecStart=/bin/sh -c 'B=%h/docker-apps/fairshare-prod/backups; F=$B/fairshare_prod-$(date +%%Y%%m%%d-%%H%%M).dump; docker exec fairshare-prod-db pg_dump -U fairshare -Fc fairshare_prod > $F.tmp && mv $F.tmp $F && find $B -name "fairshare_prod-*.dump" -mtime +14 -delete'
+ExecStart=/bin/sh -c 'B=%h/docker-apps/fairshare-prod/backups; D=$(date +%%Y%%m%%d-%%H%%M); F=$B/fairshare_prod-$D.dump; docker exec fairshare-prod-db pg_dump -U fairshare -Fc fairshare_prod > $F.tmp && mv $F.tmp $F && tar -C %h/docker-apps/fairshare-prod -czf $B/uploads-$D.tar.gz uploads && find $B \( -name "fairshare_prod-*.dump" -o -name "uploads-*.tar.gz" \) -mtime +14 -delete'
