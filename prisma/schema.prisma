@@ -57,7 +57,7 @@ model User {
   emailVerified   DateTime?
   image           String?
   password        String?   // Optional for OAuth users, null for ghost users
-  status          UserStatus @default(GHOST) // New users start as GHOST until they sign up
+  status          UserStatus @default(ACTIVE) // Placeholder (invited) users are created explicitly as GHOST
   displayName     String?   // Override name for ghost users
   
   // Ghost user metadata
@@ -260,7 +260,7 @@ model Expense {
   id          String   @id @default(cuid())
 
   // Basic expense info
-  amount      Decimal  @db.Decimal(10, 2)
+  amount      Decimal  @db.Decimal(14, 2)
   description String
   date        DateTime @default(now())
   category    ExpenseCategory?
@@ -303,7 +303,7 @@ model ExpensePayer {
   userId      String
 
   // Amount this user paid towards the expense
-  amountPaid  Decimal @db.Decimal(10, 2)
+  amountPaid  Decimal @db.Decimal(14, 2)
 
   // Payment method and reference
   paymentMethod String? // e.g., "Credit Card", "Cash", "Venmo"
@@ -348,7 +348,7 @@ model ExpenseSplit {
   userId      String
 
   // Split details
-  amount      Decimal @db.Decimal(10, 2)
+  amount      Decimal @db.Decimal(14, 2)
   percentage  Decimal? @db.Decimal(5, 2) // For percentage splits
   shares      Int?    // For share-based splits
 
@@ -377,9 +377,9 @@ model ExpenseItem {
   // Item details
   name        String  // "Alice's burger", "Shared appetizer"
   description String? // Additional details about the item
-  amount      Decimal @db.Decimal(10, 2)
+  amount      Decimal @db.Decimal(14, 2)
   quantity    Int     @default(1)
-  unitPrice   Decimal? @db.Decimal(10, 2)
+  unitPrice   Decimal? @db.Decimal(14, 2)
 
   // Item categorization
   category    String? // "Food", "Tax", "Tip", "Service"
@@ -406,7 +406,7 @@ model ExpenseItemSplit {
   userId      String
 
   // Split details for this specific item
-  amount      Decimal @db.Decimal(10, 2)
+  amount      Decimal @db.Decimal(14, 2)
   percentage  Decimal? @db.Decimal(5, 2) // For percentage splits
   shares      Int?    // For share-based splits
 
@@ -432,7 +432,7 @@ model Settlement {
   id          String   @id @default(cuid())
 
   // Settlement details
-  amount      Decimal  @db.Decimal(10, 2)
+  amount      Decimal  @db.Decimal(14, 2)
   description String?
 
   // Parties involved
@@ -448,6 +448,9 @@ model Settlement {
 
   // Settlement method
   method      SettlementMethod @default(CASH)
+
+  // Who recorded this payment (payer or payee)
+  createdBy   String?
 
   // External reference (e.g., Venmo transaction ID)
   externalRef String?

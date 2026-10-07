@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { formatCurrency } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 
@@ -24,6 +25,17 @@ interface Group {
   };
 }
 
+interface Totals {
+  owe: number;
+  owed: number;
+  net: number;
+}
+
+interface Balances {
+  totals: Record<string, Totals>;
+  groups: Array<{ id: string; name: string; currency: string; net: number }>;
+}
+
 interface Expense {
   id: string;
   description: string;
@@ -43,6 +55,7 @@ interface Expense {
     user: User;
     amount: number;
   }>;
+  my?: { paid: number; share: number; net: number };
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -62,6 +75,7 @@ export default function Dashboard() {
   const { data: session } = useSession();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [balances, setBalances] = useState<Balances | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -72,23 +86,23 @@ export default function Dashboard() {
       try {
         setLoading(true);
         
-        // Fetch expenses and groups in parallel
-        const [expensesRes, groupsRes] = await Promise.all([
+        const [expensesRes, groupsRes, balancesRes] = await Promise.all([
           fetch("/api/expenses"),
-          fetch("/api/groups")
+          fetch("/api/groups"),
+          fetch("/api/balances"),
         ]);
 
         if (expensesRes.ok) {
-          const expensesData = await expensesRes.json();
-          setExpenses(expensesData.expenses || []);
+          setExpenses(await expensesRes.json());
         }
-
         if (groupsRes.ok) {
-          const groupsData = await groupsRes.json();
-          console.log('Groups API response:', groupsData);
-          setGroups(groupsData || []);
-        } else {
-          console.error('Groups API error:', groupsRes.status, groupsRes.statusText);
+          setGroups((await groupsRes.json()) || []);
+        }
+        if (balancesRes.ok) {
+          setBalances(await balancesRes.json());
+        }
+        if (!expensesRes.ok || !groupsRes.ok || !balancesRes.ok) {
+          setError("Some dashboard data could not be loaded");
         }
       } catch (err) {
         console.error("Error fetching dashboard data:", err);
@@ -101,61 +115,14 @@ export default function Dashboard() {
     fetchData();
   }, [session?.user?.id]);
 
-  const calculateTotalOwed = () => {
-    return expenses.reduce((total, expense) => {
-      const userSplit = expense.splits.find(split => split.user.id === session?.user?.id);
-      const userPaid = expense.payers.find(payer => payer.user.id === session?.user?.id);
-      
-      if (userSplit && userPaid) {
-        return total + (userSplit.amount - userPaid.amount);
-      } else if (userSplit) {
-        return total + userSplit.amount;
-      } else if (userPaid) {
-        return total - userPaid.amount;
-      }
-      
-      return total;
-    }, 0);
-  };
+  // Per-currency totals from the group ledgers (groups can use different currencies)
+  const totals = Object.entries(balances?.totals ?? {});
+  const showTotals = (pick: (t: Totals) => number) =>
+    totals.length === 0
+      ? formatCurrency(0)
+      : totals.map(([currency, t]) => formatCurrency(Math.abs(pick(t)), currency)).join(" · ");
+  const netSign = totals.reduce((acc, [, t]) => acc + Math.sign(t.net), 0);
 
-  const calculateTotalYouOwe = () => {
-    return expenses.reduce((total, expense) => {
-      const userSplit = expense.splits.find(split => split.user.id === session?.user?.id);
-      const userPaid = expense.payers.find(payer => payer.user.id === session?.user?.id);
-      
-      if (userSplit && userPaid) {
-        const diff = userSplit.amount - userPaid.amount;
-        return total + (diff > 0 ? diff : 0);
-      } else if (userSplit) {
-        return total + userSplit.amount;
-      }
-      
-      return total;
-    }, 0);
-  };
-
-  const calculateTotalYouAreOwed = () => {
-    return expenses.reduce((total, expense) => {
-      const userSplit = expense.splits.find(split => split.user.id === session?.user?.id);
-      const userPaid = expense.payers.find(payer => payer.user.id === session?.user?.id);
-      
-      if (userSplit && userPaid) {
-        const diff = userPaid.amount - userSplit.amount;
-        return total + (diff > 0 ? diff : 0);
-      } else if (userPaid) {
-        return total + userPaid.amount;
-      }
-      
-      return total;
-    }, 0);
-  };
-
-  const formatCurrency = (amount: number, currency = "USD") => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency
-    }).format(amount);
-  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -258,7 +225,7 @@ export default function Dashboard() {
                         You Owe
                       </p>
                       <p className="text-2xl font-display font-semibold text-red-600 mt-1">
-                        {formatCurrency(calculateTotalYouOwe())}
+                        {showTotals((t) => t.owe)}
                       </p>
                     </div>
                     <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
@@ -274,7 +241,7 @@ export default function Dashboard() {
                         You&apos;re Owed
                       </p>
                       <p className="text-2xl font-display font-semibold text-green-600 mt-1">
-                        {formatCurrency(calculateTotalYouAreOwed())}
+                        {showTotals((t) => t.owed)}
                       </p>
                     </div>
                     <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
@@ -290,9 +257,9 @@ export default function Dashboard() {
                         Net Balance
                       </p>
                       <p className={`text-2xl font-display font-semibold mt-1 ${
-                        calculateTotalOwed() >= 0 ? 'text-green-600' : 'text-red-600'
+                        netSign >= 0 ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        {formatCurrency(Math.abs(calculateTotalOwed()))}
+                        {showTotals((t) => t.net)}
                       </p>
                     </div>
                     <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
@@ -310,17 +277,30 @@ export default function Dashboard() {
                   </h2>
                   <span className="text-2xl">💰</span>
                 </div>
-                <div className="text-center py-4">
-                  <div className="text-gray-600 mb-2">
-                    Need settlement calculations for your groups?
+                {(balances?.groups ?? []).filter((g) => g.net !== 0).length === 0 ? (
+                  <p className="text-center py-4 text-gray-600">You are all settled up 🎉</p>
+                ) : (
+                  <div className="space-y-2">
+                    {(balances?.groups ?? [])
+                      .filter((g) => g.net !== 0)
+                      .map((g) => (
+                        <Link
+                          key={g.id}
+                          href={`/groups/${g.id}`}
+                          className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100"
+                        >
+                          <span className="font-medium text-gray-900">{g.name}</span>
+                          <span className={g.net > 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>
+                            {g.net > 0 ? "you are owed " : "you owe "}
+                            {formatCurrency(Math.abs(g.net), g.currency)}
+                          </span>
+                        </Link>
+                      ))}
+                    <Link href="/settlements" className="block text-right text-sm text-green-600 hover:text-green-700 mt-2">
+                      Settle up →
+                    </Link>
                   </div>
-                  <div className="text-sm text-gray-500 mb-4">
-                    View individual group pages to see who owes what and get optimized payment suggestions.
-                  </div>
-                  <div className="text-xs text-gray-400">
-                    💡 Settlement suggestions minimize the number of transactions needed
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Recent Expenses */}
@@ -386,6 +366,12 @@ export default function Dashboard() {
                             <p className="font-semibold text-gray-900 font-body">
                               {formatCurrency(expense.amount, expense.group?.currency)}
                             </p>
+                            {expense.my && expense.my.net !== 0 && (
+                              <p className={`text-xs ${expense.my.net > 0 ? "text-green-600" : "text-red-600"}`}>
+                                {expense.my.net > 0 ? "you lent " : "you borrowed "}
+                                {formatCurrency(Math.abs(expense.my.net), expense.group?.currency)}
+                              </p>
+                            )}
                             <p className="text-sm text-gray-600">
                               {expense.payers.length > 1 ? `${expense.payers.length} payers` : 'Single payer'}
                             </p>
@@ -490,7 +476,11 @@ export default function Dashboard() {
                               </div>
                             </div>
                             <div className="text-xs text-gray-500 font-mono">
-                              {group.currency}
+                              {(() => {
+                                const g = balances?.groups.find((x) => x.id === group.id);
+                                if (!g || g.net === 0) return group.currency;
+                                return `${g.net > 0 ? "+" : "-"}${formatCurrency(Math.abs(g.net), g.currency)}`;
+                              })()}
                             </div>
                           </div>
                         </Link>

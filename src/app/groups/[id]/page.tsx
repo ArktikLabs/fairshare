@@ -5,6 +5,8 @@ import Link from "next/link";
 import { formatCurrency } from "../../../lib/utils";
 import MemberManagement from "../../../components/MemberManagement";
 import SettlementSuggestions from "../../../components/SettlementSuggestions";
+import { loadGroupSettlements } from "../../../lib/group-ledger";
+import { appUrl } from "../../../lib/mailer";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -30,6 +32,7 @@ export default async function GroupDetailPage({ params }: Props) {
   const group = await prisma.group.findFirst({
     where: {
       id,
+      isActive: true,
       members: {
         some: {
           userId: user.id,
@@ -55,6 +58,7 @@ export default async function GroupDetailPage({ params }: Props) {
         ],
       },
       expenses: {
+        where: { isDeleted: false },
         include: {
           payers: true,
           splits: {
@@ -87,74 +91,18 @@ export default async function GroupDetailPage({ params }: Props) {
     );
   }
 
-  // Calculate balances for each member
-  const memberBalances = new Map<string, number>();
-  
-  // Initialize all members with 0 balance
-  group.members.forEach((member) => {
-    memberBalances.set(member.userId, 0);
-  });
-
-
-  // Calculate balances from expenses
-  group.expenses.forEach((expense) => {
-    // Add paid amounts to member balances
-    expense.payers.forEach((payer) => {
-      const currentBalance = memberBalances.get(payer.userId) || 0;
-      memberBalances.set(payer.userId, currentBalance + Number(payer.amountPaid));
-    });
-
-    // Subtract owed amounts from member balances
-    expense.splits.forEach((split) => {
-      const currentBalance = memberBalances.get(split.userId) || 0;
-      memberBalances.set(split.userId, currentBalance - Number(split.amount));
-    });
-  });
+  // Balances come from the same ledger as the settlements API
+  const ledger = await loadGroupSettlements(group.id);
+  const memberBalances = new Map<string, number>(
+    (ledger?.balances ?? []).map((b) => [b.userId, b.netBalance])
+  );
 
   // Find current user's role in the group
   const currentUserMember = group.members.find((member) => member.userId === user.id);
-  const isAdmin = currentUserMember?.role === "ADMIN";
-
-  // Calculate settlements (who owes whom)
-  const settlements: Array<{
-    from: { id: string; name: string };
-    to: { id: string; name: string };
-    amount: number;
-  }> = [];
-
-  const balanceArray = Array.from(memberBalances.entries()).map(([userId, balance]) => {
-    const member = group.members.find((m) => m.userId === userId);
-    return {
-      userId,
-      name: member?.user.name || member?.user.email || "",
-      balance,
-    };
-  });
-
-  // Simple settlement algorithm
-  const debtors = balanceArray.filter(m => m.balance < -0.01).sort((a, b) => a.balance - b.balance);
-  const creditors = balanceArray.filter(m => m.balance > 0.01).sort((a, b) => b.balance - a.balance);
-
-  let i = 0, j = 0;
-  while (i < debtors.length && j < creditors.length) {
-    const debt = Math.abs(debtors[i].balance);
-    const credit = creditors[j].balance;
-    const amount = Math.min(debt, credit);
-
-    if (amount > 0.01) {
-      settlements.push({
-        from: { id: debtors[i].userId, name: debtors[i].name },
-        to: { id: creditors[j].userId, name: creditors[j].name },
-        amount,
-      });
-    }
-
-    debtors[i].balance += amount;
-    creditors[j].balance -= amount;
-
-    if (Math.abs(debtors[i].balance) < 0.01) i++;
-    if (Math.abs(creditors[j].balance) < 0.01) j++;
-  }
+  const isAdmin =
+    currentUserMember?.status === "ACTIVE" &&
+    (currentUserMember.role === "ADMIN" || currentUserMember.role === "OWNER");
+  const isPendingInvite = currentUserMember?.status === "INVITED";
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -191,45 +139,24 @@ export default async function GroupDetailPage({ params }: Props) {
         </div>
 
 
-        {/* Settlement Suggestions */}
-        {settlements.length > 0 && (
-          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              Settlement Suggestions
-            </h2>
-            <div className="space-y-3">
-              {settlements.map((settlement, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-3 bg-yellow-50 border border-yellow-200 rounded-lg"
-                >
-                  <div className="flex items-center space-x-3">
-                    <span className="font-medium text-gray-900">
-                      {settlement.from.name}
-                    </span>
-                    <span className="text-gray-500">owes</span>
-                    <span className="font-medium text-gray-900">
-                      {settlement.to.name}
-                    </span>
-                  </div>
-                  <div className="font-medium text-orange-600">
-                    {formatCurrency(settlement.amount, group.currency)}
-                  </div>
-                </div>
-              ))}
-            </div>
+        {isPendingInvite && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-sm text-amber-800">
+            You have been invited to this group. Open the invite link you received to join and see balances.
           </div>
         )}
 
-        {/* Settlement Suggestions */}
-        <SettlementSuggestions
-          group={{
-            id: group.id,
-            name: group.name,
-            currency: group.currency,
-          }}
-          currentUserId={user.id}
-        />
+        {/* Balances, suggested payments and payment history */}
+        {!isPendingInvite && (
+          <SettlementSuggestions
+            group={{
+              id: group.id,
+              name: group.name,
+              currency: group.currency,
+            }}
+            currentUserId={user.id}
+            isAdmin={isAdmin}
+          />
+        )}
 
         {/* Member Management */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
@@ -241,8 +168,12 @@ export default async function GroupDetailPage({ params }: Props) {
               members: group.members.map((member) => ({
                 id: member.id,
                 userId: member.userId,
-                role: member.role as "ADMIN" | "MEMBER",
+                role: member.role,
                 status: member.status,
+                inviteLink:
+                  isAdmin && member.status === "INVITED" && member.inviteToken
+                    ? appUrl(`/invite/${member.inviteToken}`)
+                    : null,
                 user: {
                   id: member.user.id,
                   name: member.user.name,

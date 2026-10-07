@@ -4,6 +4,7 @@ import Credentials from "next-auth/providers/credentials"
 import Google from "next-auth/providers/google"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
+import { consumeLoginTicket } from "@/lib/webauthn-store"
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -21,38 +22,42 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           label: "Password",
           type: "password",
         },
+        // One-time ticket issued by /api/webauthn/authenticate after a
+        // verified passkey assertion. Never a static value.
+        passkeyTicket: {
+          label: "Passkey ticket",
+          type: "text",
+        },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
+        const email = credentials?.email as string | undefined
+        const password = credentials?.password as string | undefined
+        const passkeyTicket = credentials?.passkeyTicket as string | undefined
+
+        if (!email || (!password && !passkeyTicket)) {
           return null
         }
-
-        const email = credentials.email as string
-        const password = credentials.password as string
 
         try {
           // Find user in database
           const user = await prisma.user.findUnique({
             where: {
-              email: email,
+              email: email.trim().toLowerCase(),
             },
           })
 
-          if (!user) {
+          if (!user || user.status === "GHOST" || user.status === "INACTIVE" || user.status === "MERGED") {
             return null
           }
 
-          // Special case for WebAuthn-verified users
-          if (password === "webauthn-verified") {
-            return {
-              id: user.id,
-              email: user.email,
-              name: user.name,
-            }
+          // Passkey login: exchange the one-time ticket from the verified assertion
+          if (passkeyTicket) {
+            const ok = await consumeLoginTicket(user.id, passkeyTicket)
+            return ok ? { id: user.id, email: user.email, name: user.name } : null
           }
 
           // Regular password verification
-          if (!user.password) {
+          if (!password || !user.password) {
             return null
           }
 
@@ -93,7 +98,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     signIn: "/auth/signin",
   },
   callbacks: {
-    async jwt({ token, user, account }) {
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id
       }
@@ -110,7 +115,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       }
       return session
     },
-    async signIn({ user, account, profile }) {
+    async signIn() {
       // Allow sign in for all providers
       return true
     },

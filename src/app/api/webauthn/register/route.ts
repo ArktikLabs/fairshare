@@ -5,6 +5,7 @@ import {
 } from "@simplewebauthn/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
+import { consumeChallenge, storeChallenge } from "@/lib/webauthn-store";
 
 const rpName = process.env.AUTH_WEBAUTHN_RP_NAME || "FairShare";
 const rpID = process.env.AUTH_WEBAUTHN_RP_ID || "localhost";
@@ -48,16 +49,7 @@ export async function GET() {
       },
     });
 
-    // Store challenge in session or database for verification
-    // For simplicity, we'll store it in the database temporarily
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        // We'll store the challenge in a temporary field - you might want to use a separate table
-        name: user.name, // Keep existing name
-        // Store challenge somehow - this is a simplified approach
-      },
-    });
+    await storeChallenge("register", user.id, options.challenge);
 
     return NextResponse.json(options);
   } catch (error) {
@@ -79,11 +71,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { credential, challenge } = body;
+    const { credential } = body;
 
-    if (!credential || !challenge) {
+    if (!credential) {
       return NextResponse.json(
-        { error: "Missing credential or challenge" },
+        { error: "Missing credential" },
         { status: 400 }
       );
     }
@@ -94,6 +86,14 @@ export async function POST(request: NextRequest) {
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    const challenge = await consumeChallenge("register", user.id);
+    if (!challenge) {
+      return NextResponse.json(
+        { error: "Challenge expired, please try again" },
+        { status: 400 }
+      );
     }
 
     const verification = await verifyRegistrationResponse({

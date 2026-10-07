@@ -1,13 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { formatCurrency } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 import { User } from "@prisma/client";
 
 interface GroupMember {
   id: string;
   userId: string;
-  role: "ADMIN" | "MEMBER";
+  role: "OWNER" | "ADMIN" | "MEMBER";
   status: "ACTIVE" | "INVITED" | "LEFT" | "REMOVED";
+  /** Personal invite link (only passed to admins, only for pending invites) */
+  inviteLink?: string | null;
   user: {
     id: string;
     name: string | null;
@@ -36,22 +40,24 @@ export default function MemberManagement({
   currentUser,
   isAdmin,
 }: Props) {
+  const router = useRouter();
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const formatCurrency = (amount: number, currency = "USD") => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency
-    }).format(amount);
-  };
 
-  const inviteLink = `${
-    typeof window !== "undefined" ? window.location.origin : ""
-  }/groups/${group.id}/invite`;
+  const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
+
+  const copy = async (text: string, message: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setSuccess(message);
+    } catch {
+      setSuccess(`Copy this link: ${text}`);
+    }
+  };
 
 
   const handleAddMember = async (e?: React.FormEvent) => {
@@ -68,21 +74,19 @@ export default function MemberManagement({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email: newMemberEmail }),
+        body: JSON.stringify({ email: newMemberEmail.trim() }),
       });
 
       if (response.ok) {
         const result = await response.json();
-        if (result.isInvitation) {
-          setSuccess(`Invitation sent to ${newMemberEmail}!`);
-        } else {
-          setSuccess(`${newMemberEmail} added to the group!`);
-          setTimeout(() => {
-            if (typeof window !== "undefined") {
-              window.location.reload();
-            }
-          }, 1000);
-        }
+        const link: string | null = result.member?.inviteLink ?? null;
+        setLastInviteLink(link);
+        setSuccess(
+          result.emailSent
+            ? `Invitation emailed to ${newMemberEmail}. They can already be added to expenses.`
+            : `${newMemberEmail} invited. Share the invite link below with them. They can already be added to expenses.`
+        );
+        router.refresh();
         setNewMemberEmail("");
         setIsAddingMember(false);
       } else {
@@ -124,10 +128,7 @@ export default function MemberManagement({
 
       setSuccess("Member removed successfully!");
 
-      // Refresh the page to reflect the change
-      if (typeof window !== "undefined") {
-        window.location.reload();
-      }
+      router.refresh();
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
@@ -177,10 +178,7 @@ export default function MemberManagement({
 
       setSuccess("Role updated successfully!");
 
-      // Refresh the page to reflect the change
-      if (typeof window !== "undefined") {
-        window.location.reload();
-      }
+      router.refresh();
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
@@ -209,17 +207,6 @@ export default function MemberManagement({
         {isAdmin && (
           <div className="flex space-x-2">
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(inviteLink);
-                setSuccess("Invite link copied to clipboard!");
-                setTimeout(() => setSuccess(""), 3000);
-              }}
-              className="border border-gray-300 text-gray-700 px-3 py-1 rounded-md hover:bg-gray-50 transition-colors text-sm"
-              disabled={loading}
-            >
-              Copy Invite Link
-            </button>
-            <button
               onClick={() => setIsAddingMember(true)}
               className="bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700 transition-colors text-sm"
               disabled={loading}
@@ -239,6 +226,23 @@ export default function MemberManagement({
       {success && (
         <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
           <p className="text-sm text-green-600">{success}</p>
+          {lastInviteLink && (
+            <div className="mt-2 flex gap-2">
+              <input
+                readOnly
+                value={lastInviteLink}
+                className="flex-1 text-xs border border-green-200 rounded px-2 py-1 bg-white text-gray-700"
+                onFocus={(e) => e.target.select()}
+              />
+              <button
+                type="button"
+                onClick={() => copy(lastInviteLink, "Invite link copied")}
+                className="text-xs px-2 py-1 border border-green-300 rounded text-green-700 hover:bg-green-100"
+              >
+                Copy
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -331,8 +335,17 @@ export default function MemberManagement({
                   </div>
                   <div className="text-sm text-gray-500">
                     {member.user.email}
+                    {isInvited && isAdmin && member.inviteLink && (
+                      <button
+                        type="button"
+                        onClick={() => copy(member.inviteLink!, `Invite link for ${member.user.email} copied`)}
+                        className="ml-1 text-blue-600 hover:text-blue-800 underline"
+                      >
+                        copy invite link
+                      </button>
+                    )}
                     {isInvited && (
-                      <span className="text-yellow-600"> • Invitation sent</span>
+                      <span className="text-yellow-600"> • Invitation pending</span>
                     )}
                   </div>
                 </div>

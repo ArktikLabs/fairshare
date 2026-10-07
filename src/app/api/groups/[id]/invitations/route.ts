@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getUserDisplayName, isGhostUser } from "@/lib/ghost-users";
+import { appUrl } from "@/lib/mailer";
 
 // Helper function to validate group admin access
 async function validateGroupAdminAccess(userId: string, groupId: string) {
@@ -77,7 +78,7 @@ export async function GET(
       createdAt: invitation.createdAt,
       expiresAt: invitation.expiresAt,
       inviteLink: invitation.inviteToken
-        ? `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/invite/${invitation.inviteToken}`
+        ? appUrl(`/invite/${invitation.inviteToken}`)
         : null,
       user: {
         ...invitation.user,

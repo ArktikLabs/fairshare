@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { formatCurrency } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 
@@ -30,6 +31,8 @@ interface Expense {
     user: User;
     amount: number;
   }>;
+  my: { paid: number; share: number; net: number };
+  canEdit: boolean;
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -75,8 +78,7 @@ export default function ExpensesList() {
         const response = await fetch("/api/expenses");
         
         if (response.ok) {
-          const data = await response.json();
-          setExpenses(data.expenses || []);
+          setExpenses(await response.json());
         } else {
           setError("Failed to load expenses");
         }
@@ -91,12 +93,6 @@ export default function ExpensesList() {
     fetchExpenses();
   }, [session?.user?.id]);
 
-  const formatCurrency = (amount: number, currency = "USD") => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency
-    }).format(amount);
-  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -108,20 +104,28 @@ export default function ExpensesList() {
   };
 
   const getUserRole = (expense: Expense) => {
-    const isPayer = expense.payers.some(p => p.user.id === session?.user?.id);
-    const isSplit = expense.splits.some(s => s.user.id === session?.user?.id);
-    
-    if (isPayer && isSplit) return "paid & owes";
-    if (isPayer) return "paid";
-    if (isSplit) return "owes";
+    const { paid, share } = expense.my;
+    if (paid > 0 && share > 0) return "paid & owes";
+    if (paid > 0) return "paid";
+    if (share > 0) return "owes";
     return "not involved";
   };
 
-  const getUserAmount = (expense: Expense) => {
-    const paidAmount = expense.payers.find(p => p.user.id === session?.user?.id)?.amount || 0;
-    const owedAmount = expense.splits.find(s => s.user.id === session?.user?.id)?.amount || 0;
-    
-    return { paid: paidAmount, owed: owedAmount, net: paidAmount - owedAmount };
+  const getUserAmount = (expense: Expense) => ({
+    paid: expense.my.paid,
+    owed: expense.my.share,
+    net: expense.my.net,
+  });
+
+  const deleteExpense = async (expense: Expense) => {
+    if (!confirm(`Delete "${expense.description}"? Balances will be recalculated.`)) return;
+    const response = await fetch(`/api/expenses/${expense.id}`, { method: "DELETE" });
+    if (response.ok) {
+      setExpenses((prev) => prev.filter((e) => e.id !== expense.id));
+    } else {
+      const data = await response.json().catch(() => ({}));
+      setError(data.error || "Failed to delete expense");
+    }
   };
 
   const filteredExpenses = expenses.filter(expense => {
@@ -312,6 +316,14 @@ export default function ExpensesList() {
                             <p className="text-sm text-gray-600">
                               {expense.payers.length === 1 ? "Single payer" : `${expense.payers.length} payers`}
                             </p>
+                            {expense.canEdit && (
+                              <button
+                                onClick={() => deleteExpense(expense)}
+                                className="text-xs text-red-600 hover:text-red-800 mt-1"
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </div>
 

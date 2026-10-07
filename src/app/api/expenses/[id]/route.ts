@@ -33,10 +33,36 @@ async function validateGroupAccess(userId: string, groupId: string) {
   });
 
   if (!member) {
-    throw new Error("Access denied: Not a member of this group");
+    throw new AccessError("Access denied: Not a member of this group");
   }
 
   return member;
+}
+
+class AccessError extends Error {}
+
+async function isGroupAdmin(userId: string, groupId: string) {
+  const member = await prisma.groupMember.findFirst({
+    where: { groupId, userId, status: "ACTIVE", role: { in: ["OWNER", "ADMIN"] } },
+    select: { id: true },
+  });
+  return Boolean(member);
+}
+
+// Personal expenses (no group) are only visible to the people on them
+async function isInvolved(userId: string, expenseId: string) {
+  const hit = await prisma.expense.findFirst({
+    where: {
+      id: expenseId,
+      OR: [
+        { payers: { some: { userId } } },
+        { splits: { some: { userId } } },
+        { items: { some: { splits: { some: { userId } } } } },
+      ],
+    },
+    select: { id: true },
+  });
+  return Boolean(hit);
 }
 
 // GET /api/expenses/[id] - Get expense details
@@ -93,15 +119,21 @@ export async function GET(
       return NextResponse.json({ error: "Expense not found" }, { status: 404 });
     }
 
-    // Validate group access
+    // Validate access
     if (expense.groupId) {
       await validateGroupAccess(session.user.id, expense.groupId);
+    } else if (!(await isInvolved(session.user.id, expense.id))) {
+      return NextResponse.json({ error: "Expense not found" }, { status: 404 });
     }
 
     return NextResponse.json(expense);
   } catch (error) {
     console.error("Error fetching expense:", error);
     
+    if (error instanceof AccessError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
@@ -147,11 +179,13 @@ export async function PUT(
       await validateGroupAccess(session.user.id, expense.groupId);
     }
 
-    // Check if user is a payer (only payers can edit)
+    // Payers can edit; group admins can too
     const isPayer = expense.payers.some(payer => payer.userId === session.user.id);
-    if (!isPayer) {
+    const canManage =
+      isPayer || (expense.groupId ? await isGroupAdmin(session.user.id, expense.groupId) : false);
+    if (!canManage) {
       return NextResponse.json(
-        { error: "Access denied: Only expense payers can edit" },
+        { error: "Access denied: Only expense payers or group admins can edit" },
         { status: 403 }
       );
     }
@@ -210,6 +244,10 @@ export async function PUT(
       );
     }
     
+    if (error instanceof AccessError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
@@ -254,11 +292,13 @@ export async function DELETE(
       await validateGroupAccess(session.user.id, expense.groupId);
     }
 
-    // Check if user is a payer (only payers can delete)
+    // Payers can delete; group admins can too
     const isPayer = expense.payers.some(payer => payer.userId === session.user.id);
-    if (!isPayer) {
+    const canManage =
+      isPayer || (expense.groupId ? await isGroupAdmin(session.user.id, expense.groupId) : false);
+    if (!canManage) {
       return NextResponse.json(
-        { error: "Access denied: Only expense payers can delete" },
+        { error: "Access denied: Only expense payers or group admins can delete" },
         { status: 403 }
       );
     }
@@ -275,6 +315,10 @@ export async function DELETE(
   } catch (error) {
     console.error("Error deleting expense:", error);
     
+    if (error instanceof AccessError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

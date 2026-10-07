@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { appUrl, sendMail } from "@/lib/mailer";
 import crypto from "crypto";
 
 export async function POST(request: NextRequest) {
@@ -40,13 +41,11 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // TODO: Send email with reset link
-      // For now, we'll log the token (remove this in production)
-      console.log(`Password reset token for ${email}: ${resetToken}`);
-      console.log(`Reset link: ${process.env.AUTH_URL || 'http://localhost:3000'}/auth/reset-password?token=${resetToken}`);
-      
-      // In production, you would send an email here:
-      // await sendPasswordResetEmail(email, resetToken);
+      await sendMail({
+        to: email.toLowerCase(),
+        subject: "Reset your FairShare password",
+        text: `Someone asked to reset the password for this FairShare account.\n\nReset it here (valid for a limited time):\n${appUrl(`/auth/reset-password?token=${resetToken}`)}\n\nIf this wasn't you, ignore this email.`,
+      });
     }
 
     return NextResponse.json({

@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { inviteUserToGroup, getUserDisplayName, isGhostUser } from "@/lib/ghost-users";
+import { appUrl, sendMail } from "@/lib/mailer";
 
 const AddMemberSchema = z
   .object({
@@ -137,20 +138,8 @@ export async function POST(
 
     let body;
     try {
-      const rawBody = await request.text();
-      console.log("Raw request body:", rawBody);
-
-      if (!rawBody) {
-        return NextResponse.json(
-          { error: "Request body is empty" },
-          { status: 400 }
-        );
-      }
-
-      body = JSON.parse(rawBody);
-      console.log("Parsed request body:", body);
-    } catch (parseError) {
-      console.error("JSON parse error:", parseError);
+      body = await request.json();
+    } catch {
       return NextResponse.json(
         { error: "Invalid JSON in request body" },
         { status: 400 }
@@ -160,7 +149,7 @@ export async function POST(
     const validatedData = AddMemberSchema.parse(body);
 
     // Use Ghost Users system for all invitations
-    let email = validatedData.email;
+    let email = validatedData.email?.trim().toLowerCase();
     const userId = validatedData.userId;
 
     // If userId is provided, get the user's email
@@ -192,12 +181,17 @@ export async function POST(
         expiresInDays: 7,
       });
 
-      // TODO: Send email invitation here
-      console.log(`User invited to group: ${email}`);
-
       const inviteLink = groupMember.inviteToken
-        ? `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/invite/${groupMember.inviteToken}`
+        ? appUrl(`/invite/${groupMember.inviteToken}`)
         : null;
+
+      const emailSent = inviteLink
+        ? await sendMail({
+            to: groupMember.user.email,
+            subject: `You're invited to "${groupMember.group.name}" on FairShare`,
+            text: `${groupMember.inviter?.name || groupMember.inviter?.email || "Someone"} invited you to split expenses in "${groupMember.group.name}".\n\nJoin here:\n${inviteLink}\n\nThe link expires in 7 days.`,
+          })
+        : false;
 
       return NextResponse.json({
         message: "User invited successfully",
@@ -214,6 +208,7 @@ export async function POST(
           },
           inviteLink,
         },
+        emailSent,
       });
     } catch (error) {
       if (error instanceof Error && error.message.includes("already")) {

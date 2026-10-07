@@ -5,6 +5,7 @@ import { signIn, getSession, getProviders } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useWebAuthn } from "@/hooks/useWebAuthn";
 import Link from "next/link";
+import { getCallbackUrl } from "@/lib/safe-redirect";
 
 type Provider = {
   id: string;
@@ -56,7 +57,7 @@ export default function SignIn() {
         // Get the updated session
         const session = await getSession();
         if (session) {
-          router.push("/dashboard");
+          router.push(getCallbackUrl());
         }
       }
     } catch (err) {
@@ -76,8 +77,8 @@ export default function SignIn() {
 
     const result = await authenticateWithPasskey(email);
     if (result.success) {
-      // NextAuth session is now created, redirect to dashboard
-      router.push("/dashboard");
+      // NextAuth session is now created
+      router.push(getCallbackUrl());
     } else {
       setError(result.error || "Passkey authentication failed");
     }

@@ -31,12 +31,14 @@ interface Expense {
   notes?: string;
   payers: Array<{
     userId: string;
-    amountPaid: number;
+    amount: number;
   }>;
   splits: Array<{
     userId: string;
     amount: number;
   }>;
+  my: { paid: number; share: number; net: number };
+  canEdit: boolean;
 }
 
 const EXPENSE_CATEGORIES = [
@@ -62,7 +64,6 @@ export default function GroupExpensesPage({ params }: Props) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
-  const [currentUserId, setCurrentUserId] = useState<string>("");
 
   // Get group ID from params
   useEffect(() => {
@@ -84,12 +85,7 @@ export default function GroupExpensesPage({ params }: Props) {
         if (groupResponse.ok) {
           const groupData = await groupResponse.json();
           setGroup(groupData);
-          
-          // Find current user
-          const currentUser = groupData.members.find((m: { id: string; user: { id: string; email: string | null }; role: string }) => m.user.email === session?.user?.email);
-          if (currentUser) {
-            setCurrentUserId(currentUser.user.id);
-          }
+
         }
 
         // Fetch expenses
@@ -116,28 +112,26 @@ export default function GroupExpensesPage({ params }: Props) {
     return matchesSearch && matchesCategory;
   });
 
-  // Calculate user's role in each expense
+  // Calculate user's role in each expense (item splits are already folded in by the API)
   const getUserRole = (expense: Expense) => {
-    const isPayer = expense.payers.some(p => p.userId === currentUserId);
-    const isSplit = expense.splits.some(s => s.userId === currentUserId);
-    
-    if (isPayer && isSplit) return "paid & owes";
-    if (isPayer) return "paid";
-    if (isSplit) return "owes";
+    const { paid, share } = expense.my;
+    if (paid > 0 && share > 0) return "paid & owes";
+    if (paid > 0) return "paid";
+    if (share > 0) return "owes";
     return "not involved";
   };
 
-  // Calculate user's balance for an expense
-  const getUserBalance = (expense: Expense) => {
-    const amountPaid = expense.payers
-      .filter(p => p.userId === currentUserId)
-      .reduce((sum, p) => sum + Number(p.amountPaid), 0);
-    
-    const amountOwed = expense.splits
-      .filter(s => s.userId === currentUserId)
-      .reduce((sum, s) => sum + Number(s.amount), 0);
-    
-    return amountPaid - amountOwed;
+  const getUserBalance = (expense: Expense) => expense.my.net;
+
+  const deleteExpense = async (expense: Expense) => {
+    if (!confirm(`Delete "${expense.description}"? Balances will be recalculated.`)) return;
+    const response = await fetch(`/api/expenses/${expense.id}`, { method: "DELETE" });
+    if (response.ok) {
+      setExpenses((prev) => prev.filter((e) => e.id !== expense.id));
+    } else {
+      const data = await response.json().catch(() => ({}));
+      alert(data.error || "Failed to delete expense");
+    }
   };
 
   if (loading) {
@@ -299,6 +293,14 @@ export default function GroupExpensesPage({ params }: Props) {
                         }`}>
                           {userBalance > 0 ? "+" : ""}{formatCurrency(userBalance, group.currency)}
                         </div>
+                      )}
+                      {expense.canEdit && (
+                        <button
+                          onClick={() => deleteExpense(expense)}
+                          className="text-xs text-red-600 hover:text-red-800 mt-1"
+                        >
+                          Delete
+                        </button>
                       )}
                     </div>
                   </div>

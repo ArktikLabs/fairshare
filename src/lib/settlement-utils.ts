@@ -1,4 +1,8 @@
-// Settlement calculation utilities for FairShare
+// Settlement calculation utilities for FairShare.
+// Balances are computed in integer cents; amounts are returned as numbers in
+// the group's currency units.
+
+import { fromCents, toCents } from "./money";
 
 export interface UserBalance {
   userId: string;
@@ -6,7 +10,9 @@ export interface UserBalance {
   email: string;
   totalPaid: number;
   totalOwed: number;
-  netBalance: number; // positive = owed money, negative = owes money
+  /** Net of recorded settlement payments (sent minus received). */
+  settledNet: number;
+  netBalance: number; // positive = is owed money, negative = owes money
 }
 
 export interface Settlement {
@@ -27,109 +33,124 @@ export interface GroupSettlements {
   totalTransactions: number;
 }
 
-/**
- * Calculate balances for all users in a group
- */
-export function calculateGroupBalances(
-  members: Array<{ user: { id: string; name: string | null; email: string | null } }>,
-  expenses: Array<{
-    amount: number;
-    payers: Array<{ userId: string; amountPaid: number }>;
-    splits: Array<{ userId: string; amount: number }>;
-  }>
-): UserBalance[] {
-  const balanceMap = new Map<string, UserBalance>();
+export interface BalanceUser {
+  id: string;
+  name: string | null;
+  email: string | null;
+  displayName?: string | null;
+}
 
-  // Initialize all members with zero balances
-  members.forEach(member => {
-    balanceMap.set(member.user.id, {
-      userId: member.user.id,
-      name: member.user.name || member.user.email || "Unknown",
-      email: member.user.email || "",
-      totalPaid: 0,
-      totalOwed: 0,
-      netBalance: 0,
-    });
-  });
+export interface BalanceMember {
+  user: BalanceUser;
+}
 
-  // Calculate totals from expenses
-  expenses.forEach(expense => {
-    // Add amounts paid by each user
-    expense.payers.forEach(payer => {
-      const balance = balanceMap.get(payer.userId);
-      if (balance) {
-        balance.totalPaid += Number(payer.amountPaid);
-      }
-    });
+export interface BalanceExpense {
+  payers: Array<{ userId: string; amountPaid: number }>;
+  splits: Array<{ userId: string; amount: number }>;
+  /** Itemized expenses carry their splits on the items instead. */
+  items?: Array<{ splits: Array<{ userId: string; amount: number }> }>;
+}
 
-    // Add amounts owed by each user
-    expense.splits.forEach(split => {
-      const balance = balanceMap.get(split.userId);
-      if (balance) {
-        balance.totalOwed += Number(split.amount);
-      }
-    });
-  });
+export interface RecordedPayment {
+  payerId: string; // who handed over the money (the debtor)
+  payeeId: string; // who received it (the creditor)
+  amount: number;
+}
 
-  // Calculate net balances
-  balanceMap.forEach(balance => {
-    balance.netBalance = balance.totalPaid - balance.totalOwed;
-  });
-
-  return Array.from(balanceMap.values());
+function displayName(user: BalanceUser) {
+  return user.name || user.displayName || user.email || "Unknown";
 }
 
 /**
- * Optimize settlements to minimize the number of transactions
- * Uses a greedy algorithm to match largest creditors with largest debtors
+ * Calculate balances for everyone in a group. Users who appear in expenses or
+ * payments but are no longer listed as members are still included, so money
+ * never silently drops out of the books.
  */
-export function optimizeSettlements(
-  balances: UserBalance[],
-  currency: string = "USD"
-): Settlement[] {
-  // Create working copies and filter out zero balances
-  const creditors = balances
-    .filter(b => b.netBalance > 0.01)
-    .map(b => ({ ...b }))
-    .sort((a, b) => b.netBalance - a.netBalance); // Largest first
+export function calculateGroupBalances(
+  members: BalanceMember[],
+  expenses: BalanceExpense[],
+  payments: RecordedPayment[] = [],
+  extraUsers: BalanceUser[] = []
+): UserBalance[] {
+  const known = new Map<string, BalanceUser>();
+  extraUsers.forEach((u) => known.set(u.id, u));
+  members.forEach((m) => known.set(m.user.id, m.user));
 
+  const map = new Map<string, { paid: number; owed: number; settled: number }>();
+  const get = (userId: string) => {
+    let b = map.get(userId);
+    if (!b) {
+      b = { paid: 0, owed: 0, settled: 0 };
+      map.set(userId, b);
+    }
+    return b;
+  };
+
+  members.forEach((m) => get(m.user.id));
+
+  for (const expense of expenses) {
+    for (const payer of expense.payers) get(payer.userId).paid += toCents(Number(payer.amountPaid));
+    for (const split of expense.splits) get(split.userId).owed += toCents(Number(split.amount));
+    for (const item of expense.items ?? []) {
+      for (const split of item.splits) get(split.userId).owed += toCents(Number(split.amount));
+    }
+  }
+
+  for (const p of payments) {
+    const cents = toCents(Number(p.amount));
+    get(p.payerId).settled += cents;
+    get(p.payeeId).settled -= cents;
+  }
+
+  return Array.from(map.entries()).map(([userId, b]) => {
+    const u = known.get(userId);
+    return {
+      userId,
+      name: u ? displayName(u) : "Former member",
+      email: u?.email || "",
+      totalPaid: fromCents(b.paid),
+      totalOwed: fromCents(b.owed),
+      settledNet: fromCents(b.settled),
+      netBalance: fromCents(b.paid - b.owed + b.settled),
+    };
+  });
+}
+
+/**
+ * Suggest payments that clear every balance with few transactions
+ * (greedy: largest debtor pays largest creditor). Works in cents, so the
+ * suggestions always clear the balances exactly.
+ */
+export function optimizeSettlements(balances: UserBalance[], currency: string = "USD"): Settlement[] {
+  const creditors = balances
+    .map((b) => ({ ...b, cents: toCents(b.netBalance) }))
+    .filter((b) => b.cents > 0)
+    .sort((a, b) => b.cents - a.cents || a.userId.localeCompare(b.userId));
   const debtors = balances
-    .filter(b => b.netBalance < -0.01)
-    .map(b => ({ ...b, netBalance: Math.abs(b.netBalance) }))
-    .sort((a, b) => b.netBalance - a.netBalance); // Largest debt first
+    .map((b) => ({ ...b, cents: -toCents(b.netBalance) }))
+    .filter((b) => b.cents > 0)
+    .sort((a, b) => b.cents - a.cents || a.userId.localeCompare(b.userId));
 
   const settlements: Settlement[] = [];
-
-  let i = 0; // creditor index
-  let j = 0; // debtor index
-
+  let i = 0;
+  let j = 0;
   while (i < creditors.length && j < debtors.length) {
     const creditor = creditors[i];
     const debtor = debtors[j];
-
-    // Calculate settlement amount (minimum of what's owed and what's due)
-    const amount = Math.min(creditor.netBalance, debtor.netBalance);
-
-    if (amount > 0.01) { // Only create settlements for meaningful amounts
-      settlements.push({
-        fromUserId: debtor.userId,
-        fromUserName: debtor.name,
-        toUserId: creditor.userId,
-        toUserName: creditor.name,
-        amount: Math.round(amount * 100) / 100, // Round to 2 decimal places
-        currency,
-      });
-    }
-
-    // Update balances
-    creditor.netBalance -= amount;
-    debtor.netBalance -= amount;
-
-    // Move to next creditor/debtor if balance is settled
-    if (creditor.netBalance < 0.01) i++;
-    if (debtor.netBalance < 0.01) j++;
+    const amount = Math.min(creditor.cents, debtor.cents);
+    settlements.push({
+      fromUserId: debtor.userId,
+      fromUserName: debtor.name,
+      toUserId: creditor.userId,
+      toUserName: creditor.name,
+      amount: fromCents(amount),
+      currency,
+    });
+    creditor.cents -= amount;
+    debtor.cents -= amount;
+    if (creditor.cents === 0) i++;
+    if (debtor.cents === 0) j++;
   }
-
   return settlements;
 }
 
@@ -139,14 +160,12 @@ export function optimizeSettlements(
 export function calculateGroupSettlements(
   groupId: string,
   currency: string,
-  members: Array<{ user: { id: string; name: string | null; email: string | null } }>,
-  expenses: Array<{
-    amount: number;
-    payers: Array<{ userId: string; amountPaid: number }>;
-    splits: Array<{ userId: string; amount: number }>;
-  }>
+  members: BalanceMember[],
+  expenses: BalanceExpense[],
+  payments: RecordedPayment[] = [],
+  extraUsers: BalanceUser[] = []
 ): GroupSettlements {
-  const balances = calculateGroupBalances(members, expenses);
+  const balances = calculateGroupBalances(members, expenses, payments, extraUsers);
   const suggestedSettlements = optimizeSettlements(balances, currency);
 
   return {
@@ -162,9 +181,11 @@ export function calculateGroupSettlements(
  * Format currency amount for display
  */
 export function formatSettlementAmount(amount: number, currency: string): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency || 'USD',
+  // Fixed 2 decimals: amounts are stored in cents for every currency, and a
+  // fixed format renders identically on the server and in the browser.
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency || "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);

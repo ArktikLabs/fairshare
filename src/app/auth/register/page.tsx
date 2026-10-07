@@ -1,11 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { signIn } from "next-auth/react";
+import { getCallbackUrl } from "@/lib/safe-redirect";
 
 export default function Register() {
   const [email, setEmail] = useState("");
+  useEffect(() => {
+    // Prefill from invite links (/auth/register?email=...)
+    const invited = new URLSearchParams(window.location.search).get("email");
+    if (invited) setEmail(invited);
+  }, []);
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState("");
@@ -31,10 +38,15 @@ export default function Register() {
       if (!response.ok) {
         setError(data.error || "An error occurred");
       } else {
-        // Registration successful, redirect to sign in
-        router.push(
-          "/auth/signin?message=Registration successful. Please sign in."
-        );
+        // Registration successful: sign straight in and continue
+        const result = await signIn("credentials", { email, password, redirect: false });
+        if (result?.ok && !result.error) {
+          router.push(getCallbackUrl());
+        } else {
+          router.push(
+            "/auth/signin?message=Registration successful. Please sign in."
+          );
+        }
       }
     } catch (err) {
       console.error("Registration error:", err);

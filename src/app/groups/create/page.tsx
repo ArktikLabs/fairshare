@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -21,7 +21,7 @@ const CURRENCIES = [
 
 export default function CreateGroup() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   
   // Form state
   const [name, setName] = useState("");
@@ -80,8 +80,12 @@ export default function CreateGroup() {
     }
   };
 
+  // Redirect in an effect: calling router.push during render breaks prerendering
+  useEffect(() => {
+    if (status === "unauthenticated") router.push("/auth/signin?callbackUrl=/groups/create");
+  }, [status, router]);
+
   if (!session) {
-    router.push("/auth/signin");
     return null;
   }
 

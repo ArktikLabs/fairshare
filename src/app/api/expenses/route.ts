@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { Decimal } from "@prisma/client/runtime/library";
 import type { Prisma } from "@prisma/client";
+import { assertPayersMatchTotal, calculateSplit, toCents } from "@/lib/money";
+import { createOrGetGhostUser, inviteUserToGroup } from "@/lib/ghost-users";
 
 // Validation schemas based on RFC
 const PayerSchema = z
@@ -106,147 +108,54 @@ interface ParticipantData {
   shares?: number;
 }
 
-interface CalculatedParticipant extends ParticipantData {
-  amount: number;
-}
-
-// Helper function to resolve user by email or userId
+/**
+ * Resolve a payer/participant to a userId and make sure they belong to the
+ * expense's group. Unknown emails become placeholder (ghost) users invited to
+ * the group, so people can be split with before they sign up.
+ */
 async function resolveUser(
   identifier: { userId?: string; email?: string },
+  currentUserId: string,
   groupId?: string
 ): Promise<string> {
-  if (identifier.userId) {
-    // Verify user exists
-    const user = await prisma.user.findUnique({
-      where: { id: identifier.userId },
-      select: { id: true },
-    });
-    if (!user) {
-      throw new Error(`User with ID ${identifier.userId} not found`);
-    }
-    return identifier.userId;
-  }
+  let userId = identifier.userId;
 
-  if (identifier.email) {
-    // Try to find existing user by email
-    let user = await prisma.user.findUnique({
-      where: { email: identifier.email },
-      select: { id: true },
-    });
-
-    if (!user) {
-      // Create placeholder user for invited email
-      user = await prisma.user.create({
-        data: {
-          email: identifier.email,
-          name: identifier.email, // Use full email as name for clarity
-          // Note: This user won't be able to login until they complete registration
-        },
-        select: { id: true },
-      });
-
-      // If this is for a group expense, add the user to the group
-      if (groupId) {
-        // Check if user is already a member or has an active invitation
-        const existingMember = await prisma.groupMember.findFirst({
-          where: {
-            groupId,
-            user: {
-              email: identifier.email,
-            },
-            status: { in: ["INVITED", "ACTIVE"] },
-          },
-          include: {
-            user: true,
-          },
-        });
-
-        // Add user to group if not already a member
-        if (!existingMember) {
-          await prisma.groupMember.create({
-            data: {
-              groupId,
-              userId: user.id,
-              role: "MEMBER",
-              status: "ACTIVE", // Auto-accept for expense-based additions
-            },
-          });
-        }
+  if (!userId && identifier.email) {
+    const email = identifier.email.trim().toLowerCase();
+    if (groupId) {
+      const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+      const member = existing
+        ? await prisma.groupMember.findUnique({
+            where: { groupId_userId: { groupId, userId: existing.id } },
+            select: { status: true },
+          })
+        : null;
+      if (member && (member.status === "ACTIVE" || member.status === "INVITED")) {
+        return existing!.id;
       }
+      const invited = await inviteUserToGroup({ email, groupId, invitedBy: currentUserId });
+      return invited.userId;
     }
-
-    return user.id;
+    const ghost = await createOrGetGhostUser(email, currentUserId);
+    userId = ghost.id;
   }
 
-  throw new Error("Either userId or email must be provided");
-}
+  if (!userId) throw new Error("Either userId or email must be provided");
 
-// Business logic functions
-function validatePayerAmounts(amount: number, payers: PayerData[]) {
-  const totalPaid = payers.reduce((sum, payer) => sum + payer.amountPaid, 0);
-  if (Math.abs(totalPaid - amount) > 0.01) {
-    throw new Error("Sum of payer amounts must equal expense total");
-  }
-}
-
-function validateSplitAmounts(
-  amount: number,
-  participants: ParticipantData[],
-  splitMethod: string
-) {
-  if (splitMethod === "EXACT") {
-    const totalSplit = participants.reduce(
-      (sum, p) => sum + (p.amount || 0),
-      0
-    );
-    if (Math.abs(totalSplit - amount) > 0.01) {
-      throw new Error(
-        "Sum of split amounts must equal expense total for EXACT splits"
-      );
+  if (groupId) {
+    const member = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+      select: { status: true },
+    });
+    if (!member || (member.status !== "ACTIVE" && member.status !== "INVITED")) {
+      throw new Error("Every payer and participant must be a member of the group");
     }
-  } else if (splitMethod === "PERCENTAGE") {
-    const totalPercentage = participants.reduce(
-      (sum, p) => sum + (p.percentage || 0),
-      0
-    );
-    if (Math.abs(totalPercentage - 100) > 0.01) {
-      throw new Error("Sum of percentages must equal 100%");
-    }
+  } else if (userId !== currentUserId) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) throw new Error(`User with ID ${userId} not found`);
   }
-}
 
-function calculateSplitAmounts(
-  amount: number,
-  participants: ParticipantData[],
-  splitMethod: string
-): CalculatedParticipant[] {
-  switch (splitMethod) {
-    case "EQUAL":
-      const equalAmount = amount / participants.length;
-      return participants.map((p) => ({ ...p, amount: equalAmount }));
-
-    case "EXACT":
-      return participants.map((p) => ({ ...p, amount: p.amount || 0 }));
-
-    case "PERCENTAGE":
-      return participants.map((p) => ({
-        ...p,
-        amount: (amount * (p.percentage || 0)) / 100,
-      }));
-
-    case "SHARES":
-      const totalShares = participants.reduce(
-        (sum, p) => sum + (p.shares || 1),
-        0
-      );
-      return participants.map((p) => ({
-        ...p,
-        amount: (amount * (p.shares || 1)) / totalShares,
-      }));
-
-    default:
-      throw new Error("Invalid split method");
-  }
+  return userId;
 }
 
 async function validateGroupAccess(userId: string, groupId?: string) {
@@ -257,6 +166,7 @@ async function validateGroupAccess(userId: string, groupId?: string) {
       groupId,
       userId,
       status: "ACTIVE",
+      group: { isActive: true },
     },
   });
 
@@ -295,15 +205,63 @@ export async function POST(request: NextRequest) {
     // Resolve all users (convert emails to userIds, create placeholder users if needed)
     const resolvedPayers: PayerData[] = await Promise.all(
       validatedData.payers.map(async (payer) => ({
-        userId: await resolveUser(payer, validatedData.groupId),
+        userId: await resolveUser(payer, session.user.id, validatedData.groupId),
         amountPaid: payer.amountPaid,
         paymentMethod: payer.paymentMethod,
         paymentRef: payer.paymentRef,
       }))
     );
 
-    // Validate payer amounts
-    validatePayerAmounts(validatedData.amount, resolvedPayers);
+    // Validate payer amounts (to the cent) and that nobody is listed twice
+    assertPayersMatchTotal(validatedData.amount, resolvedPayers.map((p) => p.amountPaid));
+    if (new Set(resolvedPayers.map((p) => p.userId)).size !== resolvedPayers.length) {
+      throw new Error("Each payer can only appear once");
+    }
+    if (isItemized) {
+      const itemized = validatedData as z.infer<typeof ItemizedExpenseSchema>;
+      const itemCents = itemized.items.reduce((sum, item) => sum + toCents(item.amount), 0);
+      if (itemCents !== toCents(itemized.amount)) {
+        throw new Error("Sum of item amounts must equal expense total");
+      }
+    }
+
+    // Resolve every participant before opening the transaction (resolving can
+    // invite placeholder users, which uses the regular client).
+    const resolveParticipants = (list: z.infer<typeof ParticipantSchema>[]) =>
+      Promise.all(
+        list.map(async (participant) => ({
+          userId: await resolveUser(participant, session.user.id, validatedData.groupId),
+          amount: participant.amount,
+          percentage: participant.percentage,
+          shares: participant.shares,
+        }))
+      );
+    const resolvedItemParticipants: ParticipantData[][] = isItemized
+      ? await Promise.all(
+          (validatedData as z.infer<typeof ItemizedExpenseSchema>).items.map((item) =>
+            resolveParticipants(item.participants)
+          )
+        )
+      : [];
+    const resolvedSimpleParticipants: ParticipantData[] = isItemized
+      ? []
+      : await resolveParticipants(
+          (validatedData as z.infer<typeof SimpleExpenseSchema>).participants
+        );
+
+    // Compute all splits up front so validation errors never leave half an expense behind
+    const itemSplits = isItemized
+      ? (validatedData as z.infer<typeof ItemizedExpenseSchema>).items.map((item, i) =>
+          calculateSplit(item.amount, resolvedItemParticipants[i], item.splitMethod)
+        )
+      : [];
+    const simpleSplits = isItemized
+      ? []
+      : calculateSplit(
+          validatedData.amount,
+          resolvedSimpleParticipants,
+          (validatedData as z.infer<typeof SimpleExpenseSchema>).splitMethod
+        );
 
     // Create expense in transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -341,7 +299,7 @@ export async function POST(request: NextRequest) {
           typeof ItemizedExpenseSchema
         >;
         // Create expense items and item splits
-        for (const item of itemizedData.items) {
+        for (const [itemIndex, item] of itemizedData.items.entries()) {
           const expenseItem = await tx.expenseItem.create({
             data: {
               expenseId: expense.id,
@@ -356,22 +314,7 @@ export async function POST(request: NextRequest) {
             },
           });
 
-          // Resolve participants for this item
-          const resolvedParticipants: ParticipantData[] = await Promise.all(
-            item.participants.map(async (participant) => ({
-              userId: await resolveUser(participant, validatedData.groupId),
-              amount: participant.amount,
-              percentage: participant.percentage,
-              shares: participant.shares,
-            }))
-          );
-
-          // Calculate split amounts for this item
-          const calculatedParticipants = calculateSplitAmounts(
-            item.amount,
-            resolvedParticipants,
-            item.splitMethod
-          );
+          const calculatedParticipants = itemSplits[itemIndex];
 
           // Create item splits
           for (const participant of calculatedParticipants) {
@@ -389,30 +332,7 @@ export async function POST(request: NextRequest) {
           }
         }
       } else {
-        const simpleData = validatedData as z.infer<typeof SimpleExpenseSchema>;
-
-        // Resolve participants for simple expense
-        const resolvedParticipants: ParticipantData[] = await Promise.all(
-          simpleData.participants.map(async (participant) => ({
-            userId: await resolveUser(participant, validatedData.groupId),
-            amount: participant.amount,
-            percentage: participant.percentage,
-            shares: participant.shares,
-          }))
-        );
-
-        // Create simple expense splits
-        validateSplitAmounts(
-          simpleData.amount,
-          resolvedParticipants,
-          simpleData.splitMethod
-        );
-
-        const calculatedParticipants = calculateSplitAmounts(
-          simpleData.amount,
-          resolvedParticipants,
-          simpleData.splitMethod
-        );
+        const calculatedParticipants = simpleSplits;
 
         for (const participant of calculatedParticipants) {
           await tx.expenseSplit.create({
@@ -505,6 +425,18 @@ export async function GET(request: NextRequest) {
 
     // Add filters
     if (groupId) {
+      // Group members see every expense of the group, not only their own
+      const membership = await prisma.groupMember.findFirst({
+        where: { groupId, userId: session.user.id, status: "ACTIVE" },
+        select: { id: true },
+      });
+      if (!membership) {
+        return NextResponse.json(
+          { error: "Access denied: Not a member of this group" },
+          { status: 403 }
+        );
+      }
+      delete whereClause.OR;
       whereClause.groupId = groupId;
     }
     
@@ -547,15 +479,24 @@ export async function GET(request: NextRequest) {
           },
         },
         group: {
-          select: { id: true, name: true },
+          select: { id: true, name: true, currency: true },
         },
       },
-      orderBy: {
-        date: "desc",
-      },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     });
 
-    return NextResponse.json(expenses);
+    const adminGroups = new Set(
+      (
+        await prisma.groupMember.findMany({
+          where: { userId: session.user.id, status: "ACTIVE", role: { in: ["OWNER", "ADMIN"] } },
+          select: { groupId: true },
+        })
+      ).map((m) => m.groupId)
+    );
+
+    return NextResponse.json(
+      expenses.map((e) => serializeExpense(e, session.user.id, adminGroups))
+    );
   } catch (error) {
     console.error("Error fetching expenses:", error);
     return NextResponse.json(
@@ -563,4 +504,60 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+type ListedUser = { id: string; name: string | null; email: string };
+type ListedExpense = Prisma.ExpenseGetPayload<{
+  include: {
+    payers: { include: { user: { select: { id: true; name: true; email: true } } } };
+    splits: { include: { user: { select: { id: true; name: true; email: true } } } };
+    items: {
+      include: { splits: { include: { user: { select: { id: true; name: true; email: true } } } } };
+    };
+    group: { select: { id: true; name: true; currency: true } };
+  };
+}>;
+
+/**
+ * Plain-number view of an expense for the UI. Item splits are folded into
+ * `splits` per person, and `my` holds the current user's paid / share / net
+ * so pages don't have to repeat the money math.
+ */
+function serializeExpense(e: ListedExpense, userId: string, adminGroups: Set<string>) {
+  const shares = new Map<string, { user: ListedUser; cents: number }>();
+  const addShare = (user: ListedUser, amount: Prisma.Decimal) => {
+    const cur = shares.get(user.id) ?? { user, cents: 0 };
+    cur.cents += toCents(Number(amount));
+    shares.set(user.id, cur);
+  };
+  e.splits.forEach((s) => addShare(s.user, s.amount));
+  e.items.forEach((i) => i.splits.forEach((s) => addShare(s.user, s.amount)));
+
+  const paidCents = e.payers
+    .filter((p) => p.userId === userId)
+    .reduce((sum, p) => sum + toCents(Number(p.amountPaid)), 0);
+  const shareCents = shares.get(userId)?.cents ?? 0;
+  const isPayer = e.payers.some((p) => p.userId === userId);
+
+  return {
+    id: e.id,
+    description: e.description,
+    amount: Number(e.amount),
+    category: e.category,
+    date: e.date,
+    notes: e.notes,
+    groupId: e.groupId,
+    group: e.group,
+    isItemized: e.items.length > 0,
+    payers: e.payers.map((p) => ({ userId: p.userId, user: p.user, amount: Number(p.amountPaid) })),
+    splits: [...shares.values()].map((s) => ({ userId: s.user.id, user: s.user, amount: s.cents / 100 })),
+    items: e.items.map((i) => ({
+      id: i.id,
+      name: i.name,
+      amount: Number(i.amount),
+      splits: i.splits.map((s) => ({ userId: s.userId, user: s.user, amount: Number(s.amount) })),
+    })),
+    my: { paid: paidCents / 100, share: shareCents / 100, net: (paidCents - shareCents) / 100 },
+    canEdit: isPayer || (e.groupId ? adminGroups.has(e.groupId) : false),
+  };
 }

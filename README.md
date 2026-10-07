@@ -5,8 +5,9 @@ A modern expense-sharing application built with Next.js, featuring secure authen
 ## ✨ Features
 
 - 🔐 **Secure Authentication** - Password and passwordless (WebAuthn) login
-- 💰 **Expense Tracking** - Track and split shared expenses
-- 👥 **Group Management** - Organize expenses by groups
+- 💰 **Expense Splitting** - Equal, exact, percentage, shares and itemized (per-item) splits, with multiple payers
+- 👥 **Groups & Invites** - Invite by email; people without an account can be added to expenses right away and claim their balance when they sign up
+- ⚖️ **Settle Up** - Live balances per group, the fewest payments needed to settle, and a record of payments made
 - 📱 **Responsive Design** - Works on all device sizes
 - ♿ **Accessibility** - WCAG compliant design system
 
@@ -23,12 +24,25 @@ A modern expense-sharing application built with Next.js, featuring secure authen
    # Edit .env with your database and authentication settings
    ```
 
-3. **Start development server**
+3. **Create the database schema**
+   ```bash
+   pnpm exec prisma migrate deploy
+   ```
+
+4. **Start development server**
    ```bash
    pnpm dev
    ```
 
-4. **Open** [http://localhost:3000](http://localhost:3000)
+5. **Open** [http://localhost:3000](http://localhost:3000)
+
+## ✅ Checks
+
+```bash
+pnpm test        # money / balance unit tests (vitest)
+pnpm typecheck
+pnpm lint
+```
 
 ## 🛠️ Tech Stack
 

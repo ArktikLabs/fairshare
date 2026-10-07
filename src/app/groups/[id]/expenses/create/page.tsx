@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { allocateCents, fromCents, toCents } from "@/lib/money";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -503,7 +504,10 @@ export default function CreateGroupExpensePage({ params }: Props) {
     }
 
     fetchGroup();
-  }, [groupId, session?.user?.email, amount]);
+    // Only refetch when the group or user changes: depending on `amount` here
+    // reset the chosen participants on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId, session?.user?.email]);
 
   // Update splits when participants change
   useEffect(() => {
@@ -593,47 +597,33 @@ export default function CreateGroupExpensePage({ params }: Props) {
     });
   }, [selectedParticipants, allParticipants, isItemized]);
 
-  // Auto-calculate equal splits when amount changes
+  // Derive split amounts for EQUAL / SHARE / ADJUSTMENT from the total.
+  // Works in cents so the parts always add up to the total. Only writes state
+  // when something actually changed, otherwise this effect would loop.
   useEffect(() => {
-    if (isItemized) return;
+    if (isItemized || splits.length === 0) return;
+    if (splitMethod !== "EQUAL" && splitMethod !== "SHARE" && splitMethod !== "ADJUSTMENT") return;
 
-    if (splitMethod === "EQUAL" && amount && splits.length > 0) {
-      const totalAmount = parseFloat(amount);
-      const equalAmount = totalAmount / splits.length;
-      setSplits((prev) =>
-        prev.map((split) => ({
-          ...split,
-          amount: equalAmount,
-        }))
-      );
+    const totalCents = amount ? toCents(parseFloat(amount) || 0) : 0;
+    let cents: number[];
+    if (totalCents <= 0) {
+      cents = splits.map(() => 0);
+    } else if (splitMethod === "SHARE") {
+      const shares = splits.map((s) => (s.share && s.share > 0 ? s.share : 1));
+      cents = allocateCents(totalCents, shares);
+    } else if (splitMethod === "ADJUSTMENT") {
+      const adj = splits.map((s) => toCents(s.adjustment || 0));
+      const rest = totalCents - adj.reduce((a, b) => a + b, 0);
+      const base = rest >= 0 ? allocateCents(rest, splits.map(() => 1)) : splits.map(() => 0);
+      cents = base.map((b, i) => b + adj[i]);
+    } else {
+      cents = allocateCents(totalCents, splits.map(() => 1));
     }
 
-    if (splitMethod === "SHARE" && amount && splits.length > 0) {
-      const totalShares: number = splits.reduce((accumulator, currentSplit) => {
-        return accumulator + (currentSplit.share ? currentSplit.share : 1);
-      }, 0);
-      const totalAmount = parseFloat(amount);
-      setSplits((prev) =>
-        prev.map((split) => ({
-          ...split,
-          amount: (totalAmount * (split.share ? split.share : 1)) / totalShares,
-        }))
-      );
-    }
-
-    if (splitMethod === "ADJUSTMENT" && amount && splits.length > 0) {
-      const totalShares: number = splits.reduce((accumulator, currentSplit) => {
-        return accumulator + (currentSplit.share ? currentSplit.share : 1);
-      }, 0);
-      const totalAmount = parseFloat(amount);
-      setSplits((prev) =>
-        prev.map((split) => ({
-          ...split,
-          amount: (totalAmount * (split.share ? split.share : 1)) / totalShares,
-        }))
-      );
-    }
-  }, [amount, splits.length, splitMethod, isItemized, splits]);
+    const next = cents.map(fromCents);
+    if (next.every((v, i) => splits[i].amount === v)) return;
+    setSplits((prev) => prev.map((split, i) => ({ ...split, amount: next[i] ?? 0 })));
+  }, [amount, splitMethod, isItemized, splits]);
 
   // Auto-calculate payers amount when amount/payers changes
   useEffect(() => {
@@ -646,11 +636,11 @@ export default function CreateGroupExpensePage({ params }: Props) {
       : 0;
 
     if (totalAmount > 0) {
-      const equalAmount = totalAmount / payers.length;
+      const shares = allocateCents(toCents(totalAmount), payers.map(() => 1)).map(fromCents);
       setPayers((prev) =>
-        prev.map((payer) => ({
+        prev.map((payer, i) => ({
           ...payer,
-          amount: equalAmount,
+          amount: shares[i] ?? 0,
         }))
       );
     } else {
@@ -661,6 +651,9 @@ export default function CreateGroupExpensePage({ params }: Props) {
         }))
       );
     }
+    // Re-split only when the number of payers or the total changes, not on
+    // every manual edit of a payer amount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payers.length, amount, isItemized, itemTotal]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1489,7 +1482,7 @@ export default function CreateGroupExpensePage({ params }: Props) {
                           {splitMethod === "EQUAL" && (
                             <span className="text-sm text-gray-500">
                               {amount
-                                ? `${group.currency} ${(parseFloat(amount) / splits.length).toFixed(2)}`
+                                ? `${group.currency} ${(split.amount ?? 0).toFixed(2)}`
                                 : "Equal share"}
                             </span>
                           )}
@@ -1538,19 +1531,14 @@ export default function CreateGroupExpensePage({ params }: Props) {
                               <input
                                 type="number"
                                 step="1"
-                                min="0"
+                                min="1"
                                 value={split.share || 1}
                                 onChange={(e) => {
                                   const newSplits = [...splits];
-                                  newSplits[index].share = parseFloat(e.target.value) || 0;
-                                  const totalShares = newSplits.reduce((accumulator, currentItem) => {
-                                    return accumulator + (currentItem.share ? currentItem.share : 1);
-                                  }, 0);
-                                  newSplits.forEach((newSplit, newSplitIndex) => {
-                                    newSplits[newSplitIndex].amount = amount
-                                      ? (parseFloat(amount) * (newSplit.share || 1)) / totalShares
-                                      : 0;
-                                  });
+                                  newSplits[index] = {
+                                    ...newSplits[index],
+                                    share: Math.max(1, Math.round(parseFloat(e.target.value) || 1)),
+                                  };
                                   setSplits(newSplits);
                                 }}
                                 className="w-16 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
@@ -1569,16 +1557,10 @@ export default function CreateGroupExpensePage({ params }: Props) {
                                 value={split.adjustment || 0}
                                 onChange={(e) => {
                                   const newSplits = [...splits];
-                                  newSplits[index].adjustment = parseFloat(e.target.value) || 0;
-                                  const totalAdjustments = newSplits.reduce((accumulator, currentSplit) => {
-                                    return accumulator + (currentSplit.adjustment ? currentSplit.adjustment : 0);
-                                  }, 0);
-                                  newSplits.forEach((newSplit, newSplitIndex) => {
-                                    newSplits[newSplitIndex].amount = amount
-                                      ? (parseFloat(amount) - totalAdjustments) / newSplits.length +
-                                        (newSplit.adjustment ? newSplit.adjustment : 0)
-                                      : 0;
-                                  });
+                                  newSplits[index] = {
+                                    ...newSplits[index],
+                                    adjustment: parseFloat(e.target.value) || 0,
+                                  };
                                   setSplits(newSplits);
                                 }}
                                 className="w-24 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"

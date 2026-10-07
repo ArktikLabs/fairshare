@@ -17,7 +17,7 @@ async function validateGroupAdminAccess(userId: string, groupId: string) {
       groupId,
       userId,
       status: "ACTIVE",
-      role: { in: ["ADMIN"] },
+      role: { in: ["OWNER", "ADMIN"] },
     },
   });
 
@@ -121,7 +121,8 @@ export async function GET(
     console.error("Error fetching group:", error);
     
     if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      const status = error.message.startsWith("Access denied") ? 403 : 400;
+      return NextResponse.json({ error: error.message }, { status });
     }
     
     return NextResponse.json(
@@ -180,7 +181,8 @@ export async function PUT(
     }
     
     if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      const status = error.message.startsWith("Access denied") ? 403 : 400;
+      return NextResponse.json({ error: error.message }, { status });
     }
     
     return NextResponse.json(
@@ -243,7 +245,8 @@ export async function DELETE(
     console.error("Error deleting group:", error);
     
     if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      const status = error.message.startsWith("Access denied") ? 403 : 400;
+      return NextResponse.json({ error: error.message }, { status });
     }
     
     return NextResponse.json(

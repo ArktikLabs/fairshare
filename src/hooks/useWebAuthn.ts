@@ -31,10 +31,7 @@ export function useWebAuthn() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          credential,
-          challenge: options.challenge,
-        }),
+        body: JSON.stringify({ credential }),
       });
 
       if (!verificationResponse.ok) {
@@ -90,7 +87,6 @@ export function useWebAuthn() {
         },
         body: JSON.stringify({
           credential,
-          challenge: options.challenge,
           userId: options.userId,
         }),
       });
@@ -105,7 +101,7 @@ export function useWebAuthn() {
         // Use NextAuth's signIn to create a proper session
         const result = await signIn("credentials", {
           email: email,
-          password: "webauthn-verified", // Special marker for WebAuthn
+          passkeyTicket: verificationResult.ticket, // one-time, server-issued
           redirect: false,
         });
 

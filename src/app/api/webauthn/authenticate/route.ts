@@ -4,6 +4,7 @@ import {
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
 import { prisma } from "@/lib/prisma";
+import { consumeChallenge, issueLoginTicket, storeChallenge } from "@/lib/webauthn-store";
 
 const rpID = process.env.AUTH_WEBAUTHN_RP_ID || "localhost";
 const origin = process.env.AUTH_WEBAUTHN_RP_ORIGIN || "http://localhost:3000";
@@ -41,8 +42,8 @@ export async function POST(request: NextRequest) {
       userVerification: "preferred",
     });
 
-    // Store challenge temporarily for verification
-    // In a production app, you'd want to store this more securely
+    // Keep the challenge server-side; the client never gets to choose it.
+    await storeChallenge("authenticate", user.id, options.challenge);
     return NextResponse.json({ ...options, userId: user.id });
   } catch (error) {
     console.error("WebAuthn authentication options error:", error);
@@ -57,9 +58,9 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { credential, challenge, userId } = body;
+    const { credential, userId } = body;
 
-    if (!credential || !challenge || !userId) {
+    if (!credential || !userId) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -87,6 +88,14 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    const challenge = await consumeChallenge("authenticate", user.id);
+    if (!challenge) {
+      return NextResponse.json(
+        { error: "Challenge expired, please try again" },
+        { status: 400 }
+      );
+    }
+
     const verification = await verifyAuthenticationResponse({
       response: credential,
       expectedChallenge: challenge,
@@ -111,6 +120,8 @@ export async function PUT(request: NextRequest) {
 
       return NextResponse.json({
         verified: true,
+        // One-time ticket the client exchanges for a session via signIn()
+        ticket: await issueLoginTicket(user.id),
         user: {
           id: user.id,
           email: user.email,
