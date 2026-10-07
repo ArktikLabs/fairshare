@@ -39,7 +39,7 @@ git checkout -q --detach "$NEW"
 
 echo "==> install"
 if ! git diff --quiet "$OLD" "$NEW" -- package.json pnpm-lock.yaml; then
-  CI=true pnpm install --frozen-lockfile --config.confirmModulesPurge=false
+  CI=true pnpm install --frozen-lockfile
 fi
 
 set -a; . "$ENV_FILE"; set +a
