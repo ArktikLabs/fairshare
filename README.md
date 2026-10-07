@@ -60,7 +60,7 @@ Comprehensive documentation is available in the [`docs/`](./docs/) directory:
 - **[📊 Project Status](./docs/STATUS.md)** - Current development status and next steps
 - **[📋 Development Roadmap](./docs/TODO.md)** - Complete feature roadmap
 - **[🚀 Quick Wins](./docs/QUICK_WINS.md)** - High-impact tasks for immediate implementation
-- **[🎨 Design System](./docs/design-system/)** - Colors, typography, components
+- **[🎨 Design System](./docs/design-system/)** - Tokens, UI components, layout and form rules
 - **[⚙️ Setup Guides](./docs/setup/)** - Installation and configuration
 - **[🔧 Troubleshooting](./docs/troubleshooting/)** - Common issues and solutions
 

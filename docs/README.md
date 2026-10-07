@@ -12,19 +12,7 @@ Complete documentation for the FairShare expense-sharing application, including 
 
 ## 🎨 Design System
 
-The FairShare Design System provides a unified set of design principles, components, and guidelines to ensure consistency across all user interfaces.
-
-### Design System Documentation
-
-| File | Description |
-|------|-------------|
-| [Colors](./design-system/colors.md) | Color palette, usage guidelines, and accessibility |
-| [Typography](./design-system/typography.md) | Font system, scales, and text treatments |
-| [Spacing](./design-system/spacing.md) | Layout spacing, padding, margins, and grid |
-| [Components](./design-system/components.md) | UI component library and usage |
-| [Icons](./design-system/icons.md) | Icon system and guidelines |
-| [Layout](./design-system/layout.md) | Grid system, containers, and responsive design |
-| [Animation](./design-system/animation.md) | Motion design and interaction patterns |
+See [design-system/README.md](./design-system/README.md): tokens, the `src/components/ui/` components, layout and form rules.
 
 ## ⚙️ Setup & Implementation
 

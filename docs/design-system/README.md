@@ -1,41 +1,61 @@
-# Design System
+# Design system
 
-The FairShare Design System provides a unified set of design principles, components, and guidelines to ensure consistency across all user interfaces.
+One visual language for the whole app. The source of truth is the code in
+`src/components/ui/` and the tokens in `src/app/globals.css`; this page
+explains how to use them.
 
-## Design Principles
+## Tokens
 
-- **Trust & Transparency** - Clear, honest design that builds user confidence
-- **Simplicity** - Intuitive interfaces that make expense sharing effortless
-- **Accessibility** - Inclusive design for all users
-- **Modern Aesthetics** - Clean, contemporary visual design
+- **Primary colour:** indigo, exposed as `brand-50` … `brand-900`
+  (`bg-brand-600` for primary buttons, `text-brand-700` for links).
+- **Neutrals:** Tailwind `slate`. The page background is `slate-50`, cards are white with
+  a `slate-200` border.
+- **Money semantics, used only for money:** positive (you are owed / you lent) is `emerald-700`,
+  negative (you owe / you borrowed) is `rose-600`, zero is `slate-500`.
+- **Numbers** use the `.tabular` class (tabular figures) so columns line up.
+- **Radius:** `rounded-lg` for controls, `rounded-xl` for cards.
+- **Icons:** `lucide-react` at `size-4` inline and `size-5` in navigation. No emoji icons.
 
-## Documentation
+## Components (`src/components/ui/`)
 
-| File                          | Description                                        |
-| ----------------------------- | -------------------------------------------------- |
-| [Colors](./colors.md)         | Color palette, usage guidelines, and accessibility |
-| [Typography](./typography.md) | Font system, scales, and text treatments           |
-| [Spacing](./spacing.md)       | Layout spacing, padding, margins, and grid         |
-| [Components](./components.md) | UI component library and usage                     |
-| [Icons](./icons.md)           | Icon system and guidelines                         |
-| [Layout](./layout.md)         | Grid system, containers, and responsive design     |
-| [Animation](./animation.md)   | Motion design and interaction patterns             |
+| File | Exports | Notes |
+| --- | --- | --- |
+| `button.tsx` | `Button`, `ButtonLink` | Variants `primary`, `secondary`, `ghost`, `danger`, `link`. Sizes `sm`, `md`, `lg`, `icon`. |
+| `input.tsx` | `Input`, `Select`, `Textarea`, `Field` | `Field` renders the label, hint and inline error. Set `aria-invalid` on the control when there is an error. |
+| `primitives.tsx` | `Card`, `CardHeader`, `Badge`, `Alert`, `EmptyState`, `Skeleton`, `Avatar`, `Money`, `PageHeader` | `Money` is the only way to print an amount: `signed` adds +/− and colour, and `absolute` drops the sign when the words already say who owes. |
+| `category-icon.tsx` | `CategoryIcon` | Icons come from the shared list in `src/lib/categories.ts`. |
+| `currency-select.tsx` | `CurrencySelect` | A searchable ISO 4217 list (`src/lib/currencies.ts`). |
+| `action-menu.tsx` | `ActionMenu` | A Radix dropdown behind a `⋯` button, for row actions on mobile. |
+| `dialog.tsx` | `ConfirmDialog` | Use it in place of `window.confirm()`. |
 
-## Quick Reference
+Money-specific helpers live in `src/components/money-bits.tsx`:
 
-- **Primary Colors**: Green (#059669) and Blue (#2563eb)
-- **Typography**: Geist font family with display/body variants
-- **Spacing**: 8px base unit (0.5rem increments)
-- **Breakpoints**: Mobile-first responsive design (sm: 640px, md: 768px, lg: 1024px, xl: 1280px)
-- **Border Radius**: 0.75rem for cards, 0.5rem for buttons
-- **Shadows**: Layered approach with subtle elevation
+- `BalanceLabel` renders "you owe" / "you are owed" / "settled up".
+- `ExpenseShare` renders "you lent" / "you borrowed" / "your share".
 
-## Implementation
+## Shared data
 
-The design system is implemented using:
+- `src/lib/categories.ts` holds the expense categories: enum value, label and icon. Never show the
+  raw enum value.
+- `src/lib/currencies.ts` holds the currency list, popular codes first, generated from ICU data.
+  `resolveCurrency()` falls back to USD.
+- `src/lib/utils.ts#formatCurrency` is the only money formatter.
 
-- **Tailwind CSS** for utility-first styling
-- **CSS Custom Properties** for design tokens
-- **Geist Font** for typography
-- **Heroicons** for iconography
-- **Framer Motion** for animations (planned)
+## Layout
+
+- Authenticated pages live in the `src/app/(app)/` route group. Their shared layout
+  (`src/components/app-shell.tsx`) puts a top nav on desktop and a bottom tab bar on mobile:
+  Home, Groups, Add expense (primary), Settle up, Account.
+- Content width is `max-w-5xl` with `px-4 sm:px-6`. Pages start with `PageHeader`.
+  Sub-pages show a back link (`ChevronLeft` + parent name).
+- Public pages (landing, privacy, terms) use `src/components/site/site-chrome.tsx`.
+  Auth pages use `src/components/site/auth-card.tsx`.
+- Every page must render without horizontal overflow at 390px. Row actions go into an
+  `ActionMenu`, and long text truncates or clamps rather than widening the row.
+
+## Forms
+
+- Validation runs on the client before submit, and errors appear inline under the field via
+  `Field error`. Never use `alert()`.
+- Submit buttons stay disabled until the form is valid, and the reason shows next to the button.
+- Amounts are sent to the API rounded to cents.
