@@ -60,7 +60,7 @@ Custom React hook providing:
 - `authenticateWithPasskey(email)`: Function to authenticate with existing passkey
 - Loading states and error handling
 
-#### 2. `PasskeyManagement` Component (`/src/components/PasskeyManagement.tsx`)
+#### 2. Passkey management (`/src/components/account/account-settings.tsx`, passkey section)
 
 Dashboard component for passkey registration:
 
