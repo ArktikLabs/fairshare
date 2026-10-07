@@ -5,11 +5,13 @@ import type { FormGroup } from "@/components/expense-form/expense-form";
  * Groups the user can add expenses to, with everyone who can be on an
  * expense (active members and pending invitees), me first.
  */
-export async function loadFormGroups(userId: string, onlyGroupId?: string): Promise<FormGroup[]> {
+export async function loadFormGroups(userId: string, onlyGroupId?: string, opts: { direct?: boolean } = {}): Promise<FormGroup[]> {
   const groups = await prisma.group.findMany({
     where: {
       isActive: true,
       archivedAt: null,
+      // One group by id (edit, group or friend page): any kind
+      ...(onlyGroupId ? {} : { kind: opts.direct ? "DIRECT" : "STANDARD" }),
       ...(onlyGroupId ? { id: onlyGroupId } : {}),
       members: { some: { userId, status: "ACTIVE" } },
     },

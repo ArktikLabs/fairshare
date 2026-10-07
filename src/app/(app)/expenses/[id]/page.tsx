@@ -52,7 +52,7 @@ export default async function ExpenseDetailPage({
   const myNet = d.my.paid - d.my.share;
   const involved = d.my.paid !== 0 || d.my.share !== 0;
   const back = d.group ? (
-    <Link href={`/groups/${d.group.id}`} className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900">
+    <Link href={d.group.href} className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900">
       <ChevronLeft className="size-4" aria-hidden /> {d.group.name}
     </Link>
   ) : (
@@ -246,7 +246,7 @@ export default async function ExpenseDetailPage({
               )}
               {d.group && (
                 <Row label="Group">
-                  <Link href={`/groups/${d.group.id}`} className="text-brand-700 hover:underline">
+                  <Link href={d.group.href} className="text-brand-700 hover:underline">
                     {d.group.name}
                   </Link>
                 </Row>

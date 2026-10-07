@@ -127,6 +127,10 @@ export async function POST(
 
     const { id: groupId } = await params;
 
+    if ((await prisma.group.findUnique({ where: { id: groupId }, select: { kind: true } }))?.kind === "DIRECT") {
+      return NextResponse.json({ error: "A 1:1 balance with a friend has exactly two people" }, { status: 400 });
+    }
+
     // Validate group admin access
     try {
       await validateGroupAdminAccess(session.user.id, groupId);

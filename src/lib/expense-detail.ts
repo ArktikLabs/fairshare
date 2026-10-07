@@ -27,7 +27,7 @@ export interface ExpenseDetail {
   category: string | null;
   date: string;
   notes: string | null;
-  group: { id: string; name: string } | null;
+  group: { id: string; name: string; href: string } | null;
   splitMethod: string;
   itemized: boolean;
   payers: Array<{ person: DetailPerson; cents: number }>;
@@ -145,7 +145,14 @@ export async function loadExpenseDetail(id: string, userId: string): Promise<Exp
     category: e.category,
     date: e.date.toISOString(),
     notes: e.notes,
-    group: e.group ? { id: e.group.id, name: e.group.name } : null,
+    group: e.group
+      ? e.group.kind === "DIRECT"
+        ? (() => {
+            const other = [...people.values()].find((p) => p.id !== userId && (e.payers.some((x) => x.userId === p.id) || shareMap.has(p.id)));
+            return { id: e.group.id, name: other ? `With ${other.name}` : "Direct", href: other ? `/friends/${other.id}` : "/friends" };
+          })()
+        : { id: e.group.id, name: e.group.name, href: `/groups/${e.group.id}` }
+      : null,
     splitMethod: e.items.length ? "ITEMIZED" : e.splitMethod,
     itemized: e.items.length > 0,
     payers: e.payers.map((p) => ({ person: person(p.userId)!, cents: toCents(Number(p.amountPaid)) })),

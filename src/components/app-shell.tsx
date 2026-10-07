@@ -7,6 +7,8 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   Activity,
   ArrowLeftRight,
+  Bell,
+  ChartPie,
   Home,
   LogOut,
   Plus,
@@ -31,6 +33,7 @@ export function Logo({ className }: { className?: string }) {
 const DESKTOP_NAV = [
   { href: "/dashboard", label: "Dashboard", match: ["/dashboard"] },
   { href: "/groups", label: "Groups", match: ["/groups"] },
+  { href: "/friends", label: "Friends", match: ["/friends"] },
   { href: "/expenses", label: "Expenses", match: ["/expenses"] },
   { href: "/settlements", label: "Settle up", match: ["/settlements"] },
   { href: "/activity", label: "Activity", match: ["/activity"] },
@@ -53,7 +56,7 @@ export function AppShell({
 
   const tabs = [
     { href: "/dashboard", label: "Home", icon: Home, active: isActive(pathname, ["/dashboard"]) },
-    { href: "/groups", label: "Groups", icon: Users, active: isActive(pathname, ["/groups"]) },
+    { href: "/groups", label: "Groups", icon: Users, active: isActive(pathname, ["/groups", "/friends"]) },
     { href: "/expenses/create", label: "Add", icon: Plus, active: onCreate, primary: true },
     { href: "/settlements", label: "Settle up", icon: ArrowLeftRight, active: isActive(pathname, ["/settlements"]) },
     { href: "/activity", label: "Activity", icon: Activity, active: isActive(pathname, ["/activity"]) },
@@ -135,6 +138,22 @@ export function AppShell({
                       className="flex items-center gap-2 rounded-md px-2.5 py-2 text-slate-700 outline-none data-[highlighted]:bg-slate-100"
                     >
                       <UserRound className="size-4" /> Account
+                    </Link>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item asChild>
+                    <Link
+                      href="/account?tab=notifications"
+                      className="flex items-center gap-2 rounded-md px-2.5 py-2 text-slate-700 outline-none data-[highlighted]:bg-slate-100"
+                    >
+                      <Bell className="size-4" /> Notifications
+                    </Link>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item asChild>
+                    <Link
+                      href="/insights"
+                      className="flex items-center gap-2 rounded-md px-2.5 py-2 text-slate-700 outline-none data-[highlighted]:bg-slate-100"
+                    >
+                      <ChartPie className="size-4" /> Spending insights
                     </Link>
                   </DropdownMenu.Item>
                   <DropdownMenu.Item

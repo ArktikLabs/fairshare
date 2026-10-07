@@ -6,6 +6,7 @@ import { loadUserOverview, type GroupPosition } from "@/lib/overview";
 import { ButtonLink } from "@/components/ui/button";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/primitives";
 import { BalanceLabel } from "@/components/money-bits";
+import { GroupsFriendsTabs } from "@/components/groups-friends-tabs";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Groups · FairShare" };
@@ -13,12 +14,14 @@ export const metadata = { title: "Groups · FairShare" };
 export default async function GroupsPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/auth/signin?callbackUrl=/groups");
-  const { groups } = await loadUserOverview(session.user.id);
+  const { groups: all } = await loadUserOverview(session.user.id);
+  const groups = all.filter((g) => g.kind === "STANDARD");
   const current = groups.filter((g) => !g.archived);
   const archived = groups.filter((g) => g.archived);
 
   return (
     <>
+      <GroupsFriendsTabs current="groups" />
       <PageHeader
         title="Groups"
         description="Everyone you split with, one group per trip, flat or club."

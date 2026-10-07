@@ -130,6 +130,7 @@ export function ExpenseForm({
   currentUserId,
   allowGroupSwitch,
   editing,
+  doneHref,
 }: {
   groups: FormGroup[];
   initialGroupId: string;
@@ -138,6 +139,8 @@ export function ExpenseForm({
   allowGroupSwitch: boolean;
   /** Edit mode: the stored expense. Saving replaces payers, splits and items. */
   editing?: EditingExpense;
+  /** Where to go after saving a new expense (default: the group page) */
+  doneHref?: string;
 }) {
   const router = useRouter();
   const [groupId, setGroupId] = useState(initialGroupId);
@@ -402,7 +405,7 @@ export function ExpenseForm({
         if (!r.ok) receiptFailed = "Could not remove the receipt";
       }
       const q = receiptFailed ? `?receiptError=${encodeURIComponent(receiptFailed)}` : "";
-      router.push(editing || receipt.kind === "new" || receiptFailed ? `/expenses/${expenseId}${q}` : `/groups/${group.id}`);
+      router.push(editing || receipt.kind === "new" || receiptFailed ? `/expenses/${expenseId}${q}` : doneHref ?? `/groups/${group.id}`);
       router.refresh();
     } catch {
       setServerError("Network error. Please try again.");

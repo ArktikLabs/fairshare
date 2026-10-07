@@ -47,8 +47,8 @@ export default async function DashboardPage() {
       : "Dashboard";
 
   const currencies = Object.keys(overview.totals).sort();
-  const owes = active.flatMap((g) => g.owes.map((s) => ({ ...s, groupId: g.id, groupName: g.name })));
-  const owed = active.flatMap((g) => g.owed.map((s) => ({ ...s, groupId: g.id, groupName: g.name })));
+  const owes = active.flatMap((g) => g.owes.map((s) => ({ ...s, groupId: g.id, groupName: g.name, settleHref: g.kind === "DIRECT" ? g.href : `${g.href}#settle` })));
+  const owed = active.flatMap((g) => g.owed.map((s) => ({ ...s, groupId: g.id, groupName: g.name, settleHref: g.kind === "DIRECT" ? g.href : `${g.href}#settle` })));
 
   return (
     <>
@@ -75,7 +75,7 @@ export default async function DashboardPage() {
       )}
 
       {isNew ? (
-        <FirstRunChecklist groups={active} />
+        <FirstRunChecklist groups={active.filter((g) => g.kind === "STANDARD")} />
       ) : (
         <div className="space-y-5">
           <section aria-label="Totals" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -143,7 +143,7 @@ export default async function DashboardPage() {
                           </p>
                           <p className="truncate text-xs text-slate-500">
                             {e.group && (
-                              <Link href={`/groups/${e.group.id}`} className="relative z-10 hover:underline">
+                              <Link href={e.group.href} className="relative z-10 hover:underline">
                                 {e.group.name}
                               </Link>
                             )}
@@ -177,7 +177,7 @@ export default async function DashboardPage() {
                     {owes.map((s) => (
                       <li key={`o-${s.groupId}-${s.toUserId}`}>
                         <Link
-                          href={`/groups/${s.groupId}#settle`}
+                          href={s.settleHref}
                           className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"
                         >
                           <div className="min-w-0 flex-1">
@@ -194,7 +194,7 @@ export default async function DashboardPage() {
                     {owed.map((s) => (
                       <li key={`i-${s.groupId}-${s.fromUserId}`}>
                         <Link
-                          href={`/groups/${s.groupId}#settle`}
+                          href={s.settleHref}
                           className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"
                         >
                           <div className="min-w-0 flex-1">
@@ -222,7 +222,7 @@ export default async function DashboardPage() {
                   }
                 />
                 <ul className="divide-y divide-slate-100">
-                  {active.slice(0, 6).map((g) => (
+                  {active.filter((g) => g.kind === "STANDARD").slice(0, 6).map((g) => (
                     <li key={g.id}>
                       <Link href={`/groups/${g.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5">
                         <div className="min-w-0 flex-1">

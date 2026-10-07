@@ -244,7 +244,7 @@ export const expenseFullInclude = {
   payers: true,
   splits: true,
   items: { include: { splits: true } },
-  group: { select: { id: true, name: true, currency: true, archivedAt: true, isActive: true } },
+  group: { select: { id: true, name: true, currency: true, archivedAt: true, isActive: true, kind: true } },
 } satisfies Prisma.ExpenseInclude;
 
 export type FullExpense = Prisma.ExpenseGetPayload<{ include: typeof expenseFullInclude }>;

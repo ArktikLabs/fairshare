@@ -12,7 +12,17 @@ export const expenseListInclude = {
   payers: { include: { user: userSelect } },
   splits: { include: { user: userSelect } },
   items: { include: { splits: { include: { user: userSelect } } } },
-  group: { select: { id: true, name: true, currency: true, archivedAt: true } },
+  group: {
+    select: {
+      id: true,
+      name: true,
+      currency: true,
+      archivedAt: true,
+      kind: true,
+      // Direct (1:1) groups are shown by the other person's name
+      members: { where: { status: "ACTIVE" }, take: 2, select: { user: userSelect } },
+    },
+  },
   _count: { select: { comments: true } },
 } satisfies Prisma.ExpenseInclude;
 
@@ -33,7 +43,7 @@ export interface SerializedExpense {
   date: string;
   notes: string | null;
   groupId: string | null;
-  group: { id: string; name: string; currency: string } | null;
+  group: { id: string; name: string; currency: string; href: string } | null;
   isItemized: boolean;
   payers: Array<{ userId: string; user: ExpenseUser; amount: number }>;
   splits: Array<{ userId: string; user: ExpenseUser; amount: number }>;
@@ -47,6 +57,19 @@ export interface SerializedExpense {
   canEdit: boolean;
   hasReceipt: boolean;
   commentCount: number;
+}
+
+type NamedUser = { id: string; name: string | null; displayName: string | null; email: string };
+
+/** "With Budi" for a 1:1 group, from the viewer's side. */
+export function directLabel(members: NamedUser[], viewerId: string): string {
+  const other = members.find((m) => m.id !== viewerId);
+  return other ? `With ${other.name || other.displayName || other.email}` : "Direct";
+}
+
+export function friendHref(members: Array<{ id: string }>, viewerId: string): string {
+  const other = members.find((m) => m.id !== viewerId);
+  return other ? `/friends/${other.id}` : "/friends";
 }
 
 const plainUser = (u: ListedUser): ExpenseUser => ({
@@ -82,7 +105,14 @@ export function serializeExpense(
     date: e.date.toISOString(),
     notes: e.notes,
     groupId: e.groupId,
-    group: e.group ? { id: e.group.id, name: e.group.name, currency: e.group.currency } : null,
+    group: e.group
+      ? {
+          id: e.group.id,
+          name: e.group.kind === "DIRECT" ? directLabel(e.group.members.map((m) => m.user), userId) : e.group.name,
+          currency: e.group.currency,
+          href: e.group.kind === "DIRECT" ? friendHref(e.group.members.map((m) => m.user), userId) : `/groups/${e.group.id}`,
+        }
+      : null,
     isItemized: e.items.length > 0,
     payers: e.payers.map((p) => ({ userId: p.userId, user: plainUser(p.user), amount: Number(p.amountPaid) })),
     splits: [...shares.values()].map((s) => ({ userId: s.user.id, user: plainUser(s.user), amount: s.cents / 100 })),

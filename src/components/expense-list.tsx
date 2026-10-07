@@ -264,7 +264,7 @@ export function ExpenseList({
                     <p className="line-clamp-2 text-xs text-slate-500 sm:truncate">
                       {!fixedGroupId && e.group && (
                         <>
-                          <Link href={`/groups/${e.group.id}`} className="relative z-10 hover:underline">
+                          <Link href={e.group.href} className="relative z-10 hover:underline">
                             {e.group.name}
                           </Link>
                           {" · "}

@@ -7,6 +7,7 @@ import { prisma } from "./prisma";
 import { loadGroupSettlements } from "./group-ledger";
 import { fromCents, toCents } from "./money";
 import type { Settlement } from "./settlement-utils";
+import { directLabel, friendHref } from "./expense-serialize";
 
 export interface CurrencyTotals {
   owe: number;
@@ -19,6 +20,10 @@ export interface GroupPosition {
   name: string;
   currency: string;
   myStatus: "ACTIVE" | "INVITED";
+  /** DIRECT = hidden 1:1 friend ledger (not listed as a group) */
+  kind: "STANDARD" | "DIRECT";
+  /** Where the group's page is (friend page for DIRECT) */
+  href: string;
   /** Archived groups are read-only and listed separately */
   archived: boolean;
   memberCount: number;
@@ -54,7 +59,11 @@ export async function loadUserOverview(userId: string): Promise<UserOverview> {
           name: true,
           currency: true,
           archivedAt: true,
-          members: { where: { status: { in: ["ACTIVE", "INVITED"] } }, select: { status: true } },
+          kind: true,
+          members: {
+            where: { status: { in: ["ACTIVE", "INVITED"] } },
+            select: { status: true, user: { select: { id: true, name: true, displayName: true, email: true } } },
+          },
           _count: { select: { expenses: { where: { isDeleted: false } } } },
         },
       },
@@ -67,9 +76,13 @@ export async function loadUserOverview(userId: string): Promise<UserOverview> {
 
   for (const m of memberships) {
     const g = m.group;
+    const direct = g.kind === "DIRECT";
+    const people = g.members.map((x) => x.user);
     const base = {
       id: g.id,
-      name: g.name,
+      name: direct ? directLabel(people, userId) : g.name,
+      kind: g.kind,
+      href: direct ? friendHref(people, userId) : `/groups/${g.id}`,
       currency: g.currency,
       myStatus: m.status as "ACTIVE" | "INVITED",
       archived: Boolean(g.archivedAt),

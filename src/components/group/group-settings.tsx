@@ -16,6 +16,7 @@ interface GroupState {
   currency: string;
   simplifyDebts: boolean;
   archived: boolean;
+  autoRemindWeekly: boolean;
 }
 
 async function send(url: string, method: string, body?: unknown): Promise<string> {
@@ -55,6 +56,7 @@ export function GroupSettingsForm({
   const [description, setDescription] = useState(group.description);
   const [currency, setCurrency] = useState(group.currency);
   const [simplify, setSimplify] = useState(group.simplifyDebts);
+  const [autoRemind, setAutoRemind] = useState(group.autoRemindWeekly);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -70,7 +72,8 @@ export function GroupSettingsForm({
     name.trim() !== group.name ||
     description.trim() !== group.description ||
     currency !== group.currency ||
-    simplify !== group.simplifyDebts;
+    simplify !== group.simplifyDebts ||
+    autoRemind !== group.autoRemindWeekly;
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,6 +86,7 @@ export function GroupSettingsForm({
       description: description.trim() || null,
       ...(currency !== group.currency ? { currency } : {}),
       simplifyDebts: simplify,
+      autoRemindWeekly: autoRemind,
     });
     setBusy(false);
     if (err) setError(err);
@@ -191,6 +195,38 @@ export function GroupSettingsForm({
                 <span
                   className={
                     "inline-block size-5 rounded-full bg-white shadow transition-transform " + (simplify ? "translate-x-5" : "translate-x-0.5")
+                  }
+                />
+              </button>
+            </div>
+
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-slate-200 p-3">
+              <div className="min-w-0">
+                <p id="remind-label" className="text-sm font-medium text-slate-900">
+                  Weekly payment reminders
+                </p>
+                <p id="remind-hint" className="mt-0.5 text-xs text-slate-500">
+                  {autoRemind
+                    ? "On: once a week, everyone who owes money gets a reminder through their notification settings."
+                    : "Off: people are only reminded when someone presses Remind."}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoRemind}
+                aria-labelledby="remind-label"
+                aria-describedby="remind-hint"
+                disabled={locked}
+                onClick={() => setAutoRemind((s) => !s)}
+                className={
+                  "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 disabled:opacity-50 " +
+                  (autoRemind ? "bg-brand-600" : "bg-slate-300")
+                }
+              >
+                <span
+                  className={
+                    "inline-block size-5 rounded-full bg-white shadow transition-transform " + (autoRemind ? "translate-x-5" : "translate-x-0.5")
                   }
                 />
               </button>

@@ -10,6 +10,9 @@ import { currencyChangeBlocker, deleteGroupBlocker, isGroupOwner, leaveGroupBloc
 import { PageHeader } from "@/components/ui/primitives";
 import { GroupSettingsForm } from "@/components/group/group-settings";
 import { MembersCard, type MemberRow } from "@/components/group/members-card";
+import { RecurringList } from "@/components/group/recurring-list";
+import { ExportCard } from "@/components/group/export-card";
+import { listRecurring } from "@/lib/recurring";
 
 export const metadata = { title: "Group settings · FairShare" };
 export const dynamic = "force-dynamic";
@@ -31,14 +34,16 @@ export default async function GroupSettingsPage({ params }: { params: Promise<{ 
     },
   });
   if (!group) notFound();
+  if (group.kind === "DIRECT") redirect("/friends");
   const me = group.members.find((m) => m.userId === userId)!;
   const isAdmin = me.role === "ADMIN" || me.role === "OWNER";
   const archived = Boolean(group.archivedAt);
 
-  const [ledger, expenseCount, paymentCount] = await Promise.all([
+  const [ledger, expenseCount, paymentCount, recurring] = await Promise.all([
     loadGroupSettlements(group.id),
     prisma.expense.count({ where: { groupId: group.id, isDeleted: false } }),
     prisma.settlement.count({ where: { groupId: group.id, status: "CONFIRMED" } }),
+    listRecurring({ groupId: group.id, status: { not: "STOPPED" } }),
   ]);
   if (!ledger) notFound();
   const balanceOf = new Map(ledger.balances.map((b) => [b.userId, b.netBalance]));
@@ -85,6 +90,7 @@ export default async function GroupSettingsPage({ params }: { params: Promise<{ 
               currency: group.currency,
               simplifyDebts: group.simplifyDebts,
               archived,
+              autoRemindWeekly: group.autoRemindWeekly,
             }}
             isAdmin={isAdmin}
             currencyBlocker={currencyChangeBlocker(expenseCount, paymentCount)}
@@ -96,6 +102,8 @@ export default async function GroupSettingsPage({ params }: { params: Promise<{ 
             myMemberId={me.id}
             leaveBlocker={leaveBlocker}
           />
+          <RecurringList items={recurring} currency={group.currency} currentUserId={userId} isAdmin={isAdmin && !archived} />
+          <ExportCard groupId={group.id} />
         </div>
         <div className="min-w-0 space-y-5 lg:col-span-2">
           <MembersCard

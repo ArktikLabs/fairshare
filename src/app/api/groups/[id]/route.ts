@@ -68,6 +68,8 @@ const UpdateGroupSchema = z.object({
     .optional(),
   simplifyDebts: z.boolean().optional(),
   archived: z.boolean().optional(),
+  /** Weekly automatic payment reminders (cron) */
+  autoRemindWeekly: z.boolean().optional(),
 });
 
 // PUT /api/groups/[id] - Group settings (admins). Archived groups only accept unarchive.
@@ -81,6 +83,9 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
     if (!isAdminRole(m.role)) throw new HttpError(403, "Access denied: Admin privileges required");
     const g = m.group;
     const data = UpdateGroupSchema.parse(await request.json());
+    if (g.kind === "DIRECT" && (data.name !== undefined || data.archived !== undefined || data.simplifyDebts !== undefined)) {
+      throw new HttpError(400, "This is a 1:1 balance with a friend, not a group");
+    }
 
     const archivedNow = Boolean(g.archivedAt);
     const editsOther =
@@ -107,6 +112,7 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
     if (newDescription !== undefined && newDescription !== (g.description ?? null)) settings.push({ field: "description" });
     const renamed = data.name !== undefined && data.name !== g.name;
     const archiveChange = data.archived !== undefined && data.archived !== archivedNow;
+    const remindChange = data.autoRemindWeekly !== undefined && data.autoRemindWeekly !== g.autoRemindWeekly;
 
     const updated = await prisma.$transaction(async (tx) => {
       const u = await tx.group.update({
@@ -117,6 +123,9 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
           currency: data.currency,
           simplifyDebts: data.simplifyDebts,
           archivedAt: archiveChange ? (data.archived ? new Date() : null) : undefined,
+          autoRemindWeekly: data.autoRemindWeekly,
+          // First automatic reminders go out a week after turning it on
+          lastAutoRemindAt: remindChange && data.autoRemindWeekly ? new Date() : undefined,
         },
       });
       if (renamed) {
@@ -149,6 +158,7 @@ export async function DELETE(request: NextRequest, { params }: Ctx) {
     const { id: groupId } = await params;
     const m = await membership(groupId, userId);
     const g = m.group;
+    if (g.kind === "DIRECT") throw new HttpError(400, "A 1:1 balance with a friend cannot be deleted");
 
     const ledger = await loadGroupSettlements(groupId);
     const blocker = deleteGroupBlocker({

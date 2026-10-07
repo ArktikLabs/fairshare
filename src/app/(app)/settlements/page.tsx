@@ -51,7 +51,7 @@ export default async function SettlementsPage() {
             <Card key={g.id}>
               <CardHeader
                 title={
-                  <Link href={`/groups/${g.id}`} className="hover:underline">
+                  <Link href={g.href} className="hover:underline">
                     {g.name}
                   </Link>
                 }
@@ -77,7 +77,7 @@ export default async function SettlementsPage() {
               </ul>
               <div className="border-t border-slate-100 px-4 py-3 sm:px-5">
                 <Link
-                  href={`/groups/${g.id}#settle`}
+                  href={g.kind === "DIRECT" ? g.href : `${g.href}#settle`}
                   className="inline-flex items-center gap-1 text-sm font-medium text-brand-700 hover:underline"
                 >
                   Record a payment <ArrowRight className="size-4" aria-hidden />

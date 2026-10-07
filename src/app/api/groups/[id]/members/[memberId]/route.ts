@@ -51,6 +51,10 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const { id: groupId, memberId } = await params;
+
+    if ((await prisma.group.findUnique({ where: { id: groupId }, select: { kind: true } }))?.kind === "DIRECT") {
+      return NextResponse.json({ error: "A 1:1 balance with a friend has exactly two people" }, { status: 400 });
+    }
     await requireAdmin(session.user.id, groupId);
 
     const { role } = UpdateMemberSchema.parse(await request.json());
@@ -105,6 +109,10 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const { id: groupId, memberId } = await params;
+
+    if ((await prisma.group.findUnique({ where: { id: groupId }, select: { kind: true } }))?.kind === "DIRECT") {
+      return NextResponse.json({ error: "A 1:1 balance with a friend has exactly two people" }, { status: 400 });
+    }
 
     const member = await prisma.groupMember.findFirst({
       where: { id: memberId, groupId, status: { in: ["ACTIVE", "INVITED"] } },

@@ -95,6 +95,7 @@ export async function GET() {
     const groups = await prisma.group.findMany({
       where: {
         isActive: true,
+        kind: "STANDARD",
         members: {
           some: {
             userId: session.user.id,
