@@ -1,90 +1,75 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Plus, Users } from "lucide-react";
 import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
-import { loadGroupSettlements } from "@/lib/group-ledger";
-import { formatSettlementAmount } from "@/lib/settlement-utils";
-import AppHeader from "@/components/AppHeader";
+import { loadUserOverview } from "@/lib/overview";
+import { ButtonLink } from "@/components/ui/button";
+import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/primitives";
+import { BalanceLabel } from "@/components/money-bits";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Groups · FairShare" };
 
 export default async function GroupsPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/auth/signin?callbackUrl=/groups");
-  const userId = session.user.id;
-
-  const memberships = await prisma.groupMember.findMany({
-    where: { userId, status: { in: ["ACTIVE", "INVITED"] }, group: { isActive: true } },
-    include: {
-      group: {
-        include: {
-          _count: {
-            select: {
-              expenses: { where: { isDeleted: false } },
-              members: { where: { status: { in: ["ACTIVE", "INVITED"] } } },
-            },
-          },
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const groups = await Promise.all(
-    memberships.map(async (m) => {
-      const ledger = m.status === "ACTIVE" ? await loadGroupSettlements(m.groupId) : null;
-      const net = ledger?.balances.find((b) => b.userId === userId)?.netBalance ?? 0;
-      return { ...m.group, myStatus: m.status, net };
-    })
-  );
+  const { groups } = await loadUserOverview(session.user.id);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppHeader active="/groups" />
-      <main className="max-w-3xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Your groups</h1>
-          <Link href="/groups/create" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
-            Create group
-          </Link>
-        </div>
-        {groups.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-sm p-8 text-center text-gray-600">
-            No groups yet.{" "}
-            <Link href="/groups/create" className="text-blue-600 hover:text-blue-800">
-              Create your first group
-            </Link>
-          </div>
-        ) : (
-          <ul className="space-y-3">
+    <>
+      <PageHeader
+        title="Groups"
+        description="Everyone you split with, one group per trip, flat or club."
+        actions={
+          <ButtonLink href="/groups/create">
+            <Plus /> New group
+          </ButtonLink>
+        }
+      />
+      {groups.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={<Users />}
+            title="No groups yet"
+            description="Create a group, invite people, then add expenses."
+            action={
+              <ButtonLink href="/groups/create">
+                <Plus /> Create your first group
+              </ButtonLink>
+            }
+          />
+        </Card>
+      ) : (
+        <Card>
+          <ul className="divide-y divide-slate-100">
             {groups.map((g) => (
               <li key={g.id}>
-                <Link
-                  href={`/groups/${g.id}`}
-                  className="flex items-center justify-between bg-white rounded-lg shadow-sm p-4 hover:bg-gray-50"
-                >
-                  <div>
-                    <div className="font-medium text-gray-900">{g.name}</div>
-                    <div className="text-sm text-gray-500">
-                      {g._count.members} members • {g._count.expenses} expenses • {g.currency}
-                      {g.myStatus === "INVITED" && <span className="text-amber-600"> • invitation pending</span>}
-                    </div>
+                <Link href={`/groups/${g.id}`} className="flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 sm:px-5">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-sm font-semibold text-brand-700">
+                    {g.name.slice(0, 2).toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                      <span className="truncate">{g.name}</span>
+                      {g.myStatus === "INVITED" && <Badge tone="warning">Invited</Badge>}
+                    </p>
+                    <p className="truncate text-xs text-slate-500">
+                      {g.currency} · {g.memberCount} {g.memberCount === 1 ? "member" : "members"}
+                      {g.invitedCount > 0 && ` · ${g.invitedCount} invited`} · {g.expenseCount}{" "}
+                      {g.expenseCount === 1 ? "expense" : "expenses"}
+                    </p>
                   </div>
-                  {g.myStatus === "ACTIVE" && (
-                    <div
-                      className={`font-semibold ${
-                        g.net > 0 ? "text-green-600" : g.net < 0 ? "text-red-600" : "text-gray-400"
-                      }`}
-                    >
-                      {g.net === 0 ? "settled" : `${g.net > 0 ? "+" : ""}${formatSettlementAmount(g.net, g.currency)}`}
-                    </div>
+                  {g.myStatus === "ACTIVE" ? (
+                    <BalanceLabel net={g.net} currency={g.currency} />
+                  ) : (
+                    <span className="text-xs text-slate-500">Not joined</span>
                   )}
                 </Link>
               </li>
             ))}
           </ul>
-        )}
-      </main>
-    </div>
+        </Card>
+      )}
+    </>
   );
 }

@@ -1,498 +1,311 @@
-"use client";
-
-import { useState, useEffect } from "react";
-import { formatCurrency } from "@/lib/utils";
-import { useSession } from "next-auth/react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { ArrowRight, Check, Plus, Receipt, Users } from "lucide-react";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { loadUserOverview } from "@/lib/overview";
+import { expenseListInclude, serializeExpense } from "@/lib/expense-serialize";
+import { formatDate } from "@/lib/utils";
+import { ButtonLink } from "@/components/ui/button";
+import { Badge, Card, CardBody, CardHeader, EmptyState, Money, PageHeader } from "@/components/ui/primitives";
+import { CategoryIcon } from "@/components/ui/category-icon";
+import { BalanceLabel, ExpenseShare } from "@/components/money-bits";
 
-interface User {
-  id: string;
-  name: string | null;
-  email: string | null;
-}
+export const metadata = { title: "Dashboard · FairShare" };
 
-interface Group {
-  id: string;
-  name: string;
-  currency: string;
-  _count: {
-    expenses: number;
-    members: number;
-  };
-  memberStatusCount?: {
-    active: number;
-    invited: number;
-  };
-}
+export default async function DashboardPage() {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/auth/signin?callbackUrl=/dashboard");
+  const userId = session.user.id;
 
-interface Totals {
-  owe: number;
-  owed: number;
-  net: number;
-}
+  const [user, overview] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }),
+    loadUserOverview(userId),
+  ]);
+  const active = overview.groups.filter((g) => g.myStatus === "ACTIVE");
+  const pendingInvites = overview.groups.filter((g) => g.myStatus === "INVITED");
+  const activeIds = active.map((g) => g.id);
 
-interface Balances {
-  totals: Record<string, Totals>;
-  groups: Array<{ id: string; name: string; currency: string; net: number }>;
-}
+  const recentRaw = activeIds.length
+    ? await prisma.expense.findMany({
+        where: { isDeleted: false, groupId: { in: activeIds } },
+        include: expenseListInclude,
+        orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+        take: 6,
+      })
+    : [];
+  const recent = recentRaw.map((e) => serializeExpense(e, userId, new Set()));
 
-interface Expense {
-  id: string;
-  description: string;
-  amount: number;
-  category: string;
-  date: string;
-  group: {
-    id: string;
-    name: string;
-    currency: string;
-  } | null;
-  payers: Array<{
-    user: User;
-    amount: number;
-  }>;
-  splits: Array<{
-    user: User;
-    amount: number;
-  }>;
-  my?: { paid: number; share: number; net: number };
-}
+  const firstName = (user?.name || "").trim().split(/\s+/)[0];
+  const isNew = active.length === 0 || (recent.length === 0 && active.every((g) => g.expenseCount === 0));
+  const greeting = isNew
+    ? firstName
+      ? `Welcome to FairShare, ${firstName}`
+      : "Welcome to FairShare"
+    : firstName
+      ? `Hi, ${firstName}`
+      : "Dashboard";
 
-const CATEGORY_ICONS: Record<string, string> = {
-  FOOD_DRINK: "🍽️",
-  TRANSPORTATION: "🚗",
-  ACCOMMODATION: "🏨",
-  ENTERTAINMENT: "🎬",
-  SHOPPING: "🛍️",
-  UTILITIES: "⚡",
-  HEALTHCARE: "🏥",
-  EDUCATION: "📚",
-  TRAVEL: "✈️",
-  OTHER: "📦",
-};
-
-export default function Dashboard() {
-  const { data: session } = useSession();
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [balances, setBalances] = useState<Balances | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!session?.user?.id) return;
-
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        
-        const [expensesRes, groupsRes, balancesRes] = await Promise.all([
-          fetch("/api/expenses"),
-          fetch("/api/groups"),
-          fetch("/api/balances"),
-        ]);
-
-        if (expensesRes.ok) {
-          setExpenses(await expensesRes.json());
-        }
-        if (groupsRes.ok) {
-          setGroups((await groupsRes.json()) || []);
-        }
-        if (balancesRes.ok) {
-          setBalances(await balancesRes.json());
-        }
-        if (!expensesRes.ok || !groupsRes.ok || !balancesRes.ok) {
-          setError("Some dashboard data could not be loaded");
-        }
-      } catch (err) {
-        console.error("Error fetching dashboard data:", err);
-        setError("Failed to load dashboard data");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [session?.user?.id]);
-
-  // Per-currency totals from the group ledgers (groups can use different currencies)
-  const totals = Object.entries(balances?.totals ?? {});
-  const showTotals = (pick: (t: Totals) => number) =>
-    totals.length === 0
-      ? formatCurrency(0)
-      : totals.map(([currency, t]) => formatCurrency(Math.abs(pick(t)), currency)).join(" · ");
-  const netSign = totals.reduce((acc, [, t]) => acc + Math.sign(t.net), 0);
-
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-  };
-
-  if (!session) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-display font-bold text-gray-900 mb-4">
-            Please sign in to view your dashboard
-          </h1>
-          <Link
-            href="/auth/signin"
-            className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-          >
-            Sign In
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  const currencies = Object.keys(overview.totals).sort();
+  const owes = active.flatMap((g) => g.owes.map((s) => ({ ...s, groupId: g.id, groupName: g.name })));
+  const owed = active.flatMap((g) => g.owed.map((s) => ({ ...s, groupId: g.id, groupName: g.name })));
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div>
-              <Link href="/" className="text-2xl font-display font-bold text-gray-900">
-                Fair<span className="text-green-600">Share</span>
-              </Link>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/expenses/create"
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm"
-              >
-                Add Expense
-              </Link>
-              <Link
-                href="/groups/create"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm"
-              >
-                Create Group
-              </Link>
-              <Link
-                href="/account"
-                className="text-gray-600 hover:text-gray-900 font-medium text-sm"
-              >
-                Account
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
+    <>
+      <PageHeader
+        title={greeting}
+        description={isNew ? "Three steps and you are splitting bills." : "Where you stand across all your groups."}
+      />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-display font-bold text-gray-900">
-            Welcome back, {session.user?.name || session.user?.email}!
-          </h1>
-          <p className="text-gray-600 mt-2 font-body">
-            Here&apos;s your expense overview and recent activity
-          </p>
-        </div>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-6 font-body">
-            <div className="flex items-center">
-              <span className="mr-2">⚠️</span>
-              {error}
-            </div>
-          </div>
-        )}
-
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-              <p className="text-gray-600 font-body">Loading your dashboard...</p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Main Content */}
-            <div className="lg:col-span-2 space-y-8">
-              {/* Balance Overview */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">
-                        You Owe
-                      </p>
-                      <p className="text-2xl font-display font-semibold text-red-600 mt-1">
-                        {showTotals((t) => t.owe)}
-                      </p>
-                    </div>
-                    <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
-                      <span className="text-2xl">📤</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">
-                        You&apos;re Owed
-                      </p>
-                      <p className="text-2xl font-display font-semibold text-green-600 mt-1">
-                        {showTotals((t) => t.owed)}
-                      </p>
-                    </div>
-                    <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                      <span className="text-2xl">📥</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">
-                        Net Balance
-                      </p>
-                      <p className={`text-2xl font-display font-semibold mt-1 ${
-                        netSign >= 0 ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {showTotals((t) => t.net)}
-                      </p>
-                    </div>
-                    <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                      <span className="text-2xl">⚖️</span>
-                    </div>
-                  </div>
-                </div>
+      {pendingInvites.length > 0 && (
+        <Card className="mb-5 border-brand-200 bg-brand-50/50">
+          <CardBody className="space-y-2">
+            {pendingInvites.map((g) => (
+              <div key={g.id} className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-slate-800">
+                  You were invited to <span className="font-medium">{g.name}</span>
+                </p>
+                <ButtonLink href={`/groups/${g.id}`} size="sm" variant="secondary">
+                  View invite
+                </ButtonLink>
               </div>
+            ))}
+          </CardBody>
+        </Card>
+      )}
 
-              {/* Settlement Summary */}
-              <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-display font-semibold text-gray-900">
-                    Settlement Summary
-                  </h2>
-                  <span className="text-2xl">💰</span>
-                </div>
-                {(balances?.groups ?? []).filter((g) => g.net !== 0).length === 0 ? (
-                  <p className="text-center py-4 text-gray-600">You are all settled up 🎉</p>
+      {isNew ? (
+        <FirstRunChecklist groups={active} />
+      ) : (
+        <div className="space-y-5">
+          <section aria-label="Totals" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {currencies.map((c) => {
+              const t = overview.totals[c];
+              return (
+                <Card key={c}>
+                  <CardBody className="py-3.5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{c} net</p>
+                      <Badge tone={t.net > 0 ? "positive" : t.net < 0 ? "negative" : "neutral"}>
+                        {t.net > 0 ? "You are owed" : t.net < 0 ? "You owe" : "All settled"}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-2xl font-semibold">
+                      <Money amount={t.net} currency={c} signed />
+                    </p>
+                    <dl className="mt-2 flex gap-4 text-xs text-slate-500">
+                      <div>
+                        <dt className="inline">You owe </dt>
+                        <dd className="inline font-medium text-slate-800">
+                          <Money amount={t.owe} currency={c} />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline">Owed to you </dt>
+                        <dd className="inline font-medium text-slate-800">
+                          <Money amount={t.owed} currency={c} />
+                        </dd>
+                      </div>
+                    </dl>
+                  </CardBody>
+                </Card>
+              );
+            })}
+          </section>
+
+          <div className="grid gap-5 lg:grid-cols-5">
+            <div className="space-y-5 lg:col-span-3">
+              <Card>
+                <CardHeader
+                  title="Recent expenses"
+                  action={
+                    <Link href="/expenses" className="text-sm font-medium text-brand-700 hover:underline">
+                      View all
+                    </Link>
+                  }
+                />
+                {recent.length === 0 ? (
+                  <EmptyState
+                    icon={<Receipt />}
+                    title="No expenses yet"
+                    action={<ButtonLink href="/expenses/create" size="sm"><Plus /> Add expense</ButtonLink>}
+                  />
                 ) : (
-                  <div className="space-y-2">
-                    {(balances?.groups ?? [])
-                      .filter((g) => g.net !== 0)
-                      .map((g) => (
-                        <Link
-                          key={g.id}
-                          href={`/groups/${g.id}`}
-                          className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100"
-                        >
-                          <span className="font-medium text-gray-900">{g.name}</span>
-                          <span className={g.net > 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>
-                            {g.net > 0 ? "you are owed " : "you owe "}
-                            {formatCurrency(Math.abs(g.net), g.currency)}
-                          </span>
-                        </Link>
-                      ))}
-                    <Link href="/settlements" className="block text-right text-sm text-green-600 hover:text-green-700 mt-2">
-                      Settle up →
-                    </Link>
-                  </div>
-                )}
-              </div>
-
-              {/* Recent Expenses */}
-              <div className="bg-white rounded-2xl shadow-lg">
-                <div className="p-6 border-b border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-display font-semibold text-gray-900">
-                      Recent Expenses
-                    </h2>
-                    <Link
-                      href="/expenses"
-                      className="text-green-600 hover:text-green-500 font-medium text-sm font-body"
-                    >
-                      View all →
-                    </Link>
-                  </div>
-                </div>
-                <div className="p-6">
-                  {expenses.length === 0 ? (
-                    <div className="text-center py-12">
-                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <span className="text-2xl">🎉</span>
-                      </div>
-                      <h3 className="text-lg font-display font-medium text-gray-900 mb-2">
-                        You&apos;re all set!
-                      </h3>
-                      <p className="text-gray-600 font-body mb-4">
-                        Start by creating your first expense or group.
-                      </p>
-                      <Link
-                        href="/expenses/create"
-                        className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors"
-                      >
-                        Add Expense
-                      </Link>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {expenses.slice(0, 5).map((expense) => (
-                        <div key={expense.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                          <div className="flex items-center space-x-4">
-                            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                              <span className="text-lg">
-                                {CATEGORY_ICONS[expense.category] || "📦"}
-                              </span>
-                            </div>
-                            <div>
-                              <h3 className="font-medium text-gray-900 font-body">
-                                {expense.description}
-                              </h3>
-                              <div className="flex items-center space-x-2 text-sm text-gray-600">
-                                <span>{formatDate(expense.date)}</span>
-                                {expense.group && (
-                                  <>
-                                    <span>•</span>
-                                    <span>{expense.group.name}</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-semibold text-gray-900 font-body">
-                              {formatCurrency(expense.amount, expense.group?.currency)}
-                            </p>
-                            {expense.my && expense.my.net !== 0 && (
-                              <p className={`text-xs ${expense.my.net > 0 ? "text-green-600" : "text-red-600"}`}>
-                                {expense.my.net > 0 ? "you lent " : "you borrowed "}
-                                {formatCurrency(Math.abs(expense.my.net), expense.group?.currency)}
-                              </p>
+                  <ul className="divide-y divide-slate-100">
+                    {recent.map((e) => (
+                      <li key={e.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
+                        <CategoryIcon category={e.category} />
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-2 break-words text-sm font-medium text-slate-900 sm:truncate">{e.description}</p>
+                          <p className="truncate text-xs text-slate-500">
+                            {e.group && (
+                              <Link href={`/groups/${e.group.id}`} className="hover:underline">
+                                {e.group.name}
+                              </Link>
                             )}
-                            <p className="text-sm text-gray-600">
-                              {expense.payers.length > 1 ? `${expense.payers.length} payers` : 'Single payer'}
-                            </p>
-                          </div>
+                            {" · "}
+                            {formatDate(e.date)}
+                          </p>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+                        <ExpenseShare expense={e} currency={e.group?.currency ?? "USD"} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Card>
             </div>
 
-            {/* Sidebar */}
-            <div className="space-y-8">
-              {/* Quick Actions */}
-              <div className="bg-white rounded-2xl shadow-lg p-6">
-                <h2 className="text-lg font-display font-semibold text-gray-900 mb-4">
-                  Quick Actions
-                </h2>
-                <div className="space-y-3">
-                  <Link
-                    href="/expenses/create"
-                    className="block w-full text-center bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-lg font-medium transition-colors"
-                  >
-                    Add New Expense
-                  </Link>
-                  <Link
-                    href="/groups/create"
-                    className="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg font-medium transition-colors"
-                  >
-                    Create Group
-                  </Link>
-                  <Link
-                    href="/settlements"
-                    className="block w-full text-center bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-4 rounded-lg font-medium transition-colors"
-                  >
-                    Settle Up
-                  </Link>
-                </div>
-              </div>
-
-              {/* Your Groups */}
-              <div className="bg-white rounded-2xl shadow-lg">
-                <div className="p-6 border-b border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-display font-semibold text-gray-900">
-                      Your Groups
-                    </h2>
-                    <Link
-                      href="/groups"
-                      className="text-green-600 hover:text-green-500 font-medium text-sm font-body"
-                    >
-                      View all →
+            <div className="space-y-5 lg:col-span-2">
+              <Card>
+                <CardHeader
+                  title="Settle up"
+                  description="Fewest payments to clear every balance"
+                  action={
+                    <Link href="/settlements" className="text-sm font-medium text-brand-700 hover:underline">
+                      Open
                     </Link>
-                  </div>
-                </div>
-                <div className="p-6">
-                  {groups.length === 0 ? (
-                    <div className="text-center py-8">
-                      <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                        <span className="text-lg">👥</span>
-                      </div>
-                      <p className="text-gray-600 font-body mb-3">
-                        No groups yet
-                      </p>
-                      <Link
-                        href="/groups/create"
-                        className="text-green-600 hover:text-green-500 font-medium text-sm font-body"
-                      >
-                        Create your first group
-                      </Link>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {groups.slice(0, 3).map((group) => (
+                  }
+                />
+                {owes.length + owed.length === 0 ? (
+                  <EmptyState icon={<Check />} title="You are all settled up" className="py-6" />
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {owes.map((s) => (
+                      <li key={`o-${s.groupId}-${s.toUserId}`}>
                         <Link
-                          key={group.id}
-                          href={`/groups/${group.id}`}
-                          className="block p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                          href={`/groups/${s.groupId}#settle`}
+                          className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"
                         >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h3 className="font-medium text-gray-900 font-body">
-                                {group.name}
-                              </h3>
-                              <div className="text-sm text-gray-600 space-y-1">
-                                <div>
-                                  {group.memberStatusCount ? (
-                                    <>
-                                      {group.memberStatusCount.active} active
-                                      {group.memberStatusCount.invited > 0 && (
-                                        <span className="text-yellow-600">
-                                          {" "}• {group.memberStatusCount.invited} pending
-                                        </span>
-                                      )}
-                                    </>
-                                  ) : (
-                                    `${group._count.members} members`
-                                  )}
-                                  {" "}• {group._count.expenses} expenses
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-xs text-gray-500 font-mono">
-                              {(() => {
-                                const g = balances?.groups.find((x) => x.id === group.id);
-                                if (!g || g.net === 0) return group.currency;
-                                return `${g.net > 0 ? "+" : "-"}${formatCurrency(Math.abs(g.net), g.currency)}`;
-                              })()}
-                            </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm text-slate-900">
+                              You pay <span className="font-medium">{s.toUserName}</span>
+                            </p>
+                            <p className="truncate text-xs text-slate-500">{s.groupName}</p>
                           </div>
+                          <Money amount={-s.amount} currency={s.currency} absolute className="text-sm font-semibold" />
+                          <ArrowRight className="size-4 text-slate-400" aria-hidden />
                         </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+                      </li>
+                    ))}
+                    {owed.map((s) => (
+                      <li key={`i-${s.groupId}-${s.fromUserId}`}>
+                        <Link
+                          href={`/groups/${s.groupId}#settle`}
+                          className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm text-slate-900">
+                              <span className="font-medium">{s.fromUserName}</span> pays you
+                            </p>
+                            <p className="truncate text-xs text-slate-500">{s.groupName}</p>
+                          </div>
+                          <Money amount={s.amount} currency={s.currency} absolute className="text-sm font-semibold" />
+                          <ArrowRight className="size-4 text-slate-400" aria-hidden />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Card>
+
+              <Card>
+                <CardHeader
+                  title="Your groups"
+                  action={
+                    <Link href="/groups" className="text-sm font-medium text-brand-700 hover:underline">
+                      All groups
+                    </Link>
+                  }
+                />
+                <ul className="divide-y divide-slate-100">
+                  {active.slice(0, 6).map((g) => (
+                    <li key={g.id}>
+                      <Link href={`/groups/${g.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-slate-900">{g.name}</p>
+                          <p className="text-xs text-slate-500">
+                            {g.memberCount} {g.memberCount === 1 ? "member" : "members"} · {g.expenseCount}{" "}
+                            {g.expenseCount === 1 ? "expense" : "expenses"}
+                          </p>
+                        </div>
+                        <BalanceLabel net={g.net} currency={g.currency} />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
             </div>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function FirstRunChecklist({
+  groups,
+}: {
+  groups: Array<{ id: string; name: string; memberCount: number; invitedCount: number }>;
+}) {
+  const first = groups[0];
+  const hasGroup = groups.length > 0;
+  const hasOthers = groups.some((g) => g.memberCount + g.invitedCount > 1);
+  const steps = [
+    {
+      done: hasGroup,
+      title: "Create a group",
+      text: "A trip, a flat, a dinner club: one group per set of people.",
+      action: <ButtonLink href="/groups/create" size="sm"><Users /> Create group</ButtonLink>,
+    },
+    {
+      done: hasOthers,
+      title: "Invite people",
+      text: "Invite by email or share a link. They can be added to expenses before they join.",
+      action: first ? (
+        <ButtonLink href={`/groups/${first.id}#members`} size="sm" variant={hasGroup ? "primary" : "secondary"}>
+          Invite to {first.name}
+        </ButtonLink>
+      ) : null,
+    },
+    {
+      done: false,
+      title: "Add your first expense",
+      text: "Say who paid and how to split it. FairShare keeps the running balance.",
+      action: first ? (
+        <ButtonLink href={`/groups/${first.id}/expenses/create`} size="sm" variant={hasOthers ? "primary" : "secondary"}>
+          <Plus /> Add expense
+        </ButtonLink>
+      ) : null,
+    },
+  ];
+  const current = steps.findIndex((s) => !s.done);
+  return (
+    <Card className="max-w-2xl">
+      <CardHeader title="Get started" description={`${steps.filter((s) => s.done).length} of 3 done`} />
+      <ol className="divide-y divide-slate-100">
+        {steps.map((s, i) => (
+          <li key={s.title} className="flex gap-3 px-4 py-4 sm:px-5">
+            <span
+              className={
+                s.done
+                  ? "flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white"
+                  : i === current
+                    ? "flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white"
+                    : "flex size-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-500"
+              }
+            >
+              {s.done ? <Check className="size-4" aria-label="Done" /> : i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className={s.done ? "text-sm font-medium text-slate-500 line-through" : "text-sm font-medium text-slate-900"}>
+                {s.title}
+              </p>
+              <p className="mt-0.5 text-sm text-slate-500">{s.text}</p>
+              {!s.done && i === current && s.action && <div className="mt-3">{s.action}</div>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </Card>
   );
 }

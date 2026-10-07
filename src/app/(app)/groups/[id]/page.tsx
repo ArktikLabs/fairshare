@@ -1,254 +1,216 @@
-import { auth } from "../../../../auth";
-import { redirect } from "next/navigation";
-import { prisma } from "../../../lib/prisma";
 import Link from "next/link";
-import { formatCurrency } from "../../../lib/utils";
-import MemberManagement from "../../../components/MemberManagement";
-import SettlementSuggestions from "../../../components/SettlementSuggestions";
-import { loadGroupSettlements } from "../../../lib/group-ledger";
-import { appUrl } from "../../../lib/mailer";
+import { notFound, redirect } from "next/navigation";
+import { ChevronLeft, Plus, Receipt } from "lucide-react";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { loadGroupSettlements, loadPaymentHistory } from "@/lib/group-ledger";
+import { expenseListInclude, serializeExpense } from "@/lib/expense-serialize";
+import { appUrl } from "@/lib/mailer";
+import { formatDate } from "@/lib/utils";
+import { ButtonLink } from "@/components/ui/button";
+import { Alert, Card, CardHeader, EmptyState, Money, PageHeader } from "@/components/ui/primitives";
+import { CategoryIcon } from "@/components/ui/category-icon";
+import { ExpenseShare } from "@/components/money-bits";
+import { BalancesCard, PaymentsCard, SettleUpCard } from "@/components/group/settle-up";
+import { MembersCard, type MemberRow } from "@/components/group/members-card";
 
 interface Props {
   params: Promise<{ id: string }>;
 }
 
+export async function generateMetadata({ params }: Props) {
+  const { id } = await params;
+  const g = await prisma.group.findUnique({ where: { id }, select: { name: true } });
+  return { title: g ? `${g.name} · FairShare` : "Group · FairShare" };
+}
+
+const back = (
+  <Link href="/groups" className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900">
+    <ChevronLeft className="size-4" aria-hidden /> Groups
+  </Link>
+);
+
 export default async function GroupDetailPage({ params }: Props) {
   const { id } = await params;
   const session = await auth();
+  if (!session?.user?.id) redirect(`/auth/signin?callbackUrl=/groups/${id}`);
+  const userId = session.user.id;
 
-  if (!session?.user?.email) {
-    redirect("/auth/signin");
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-  });
-
-  if (!user) {
-    redirect("/auth/signin");
-  }
-
-  // Get group with members and expenses
   const group = await prisma.group.findFirst({
-    where: {
-      id,
-      isActive: true,
-      members: {
-        some: {
-          userId: user.id,
-          status: { in: ["ACTIVE", "INVITED"] },
-        },
-      },
-    },
+    where: { id, isActive: true, members: { some: { userId, status: { in: ["ACTIVE", "INVITED"] } } } },
     include: {
       members: {
         where: { status: { in: ["ACTIVE", "INVITED"] } },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-        },
-        orderBy: [
-          { role: "asc" }, // ADMINs first
-          { user: { name: "asc" } },
-        ],
-      },
-      expenses: {
-        where: { isDeleted: false },
-        include: {
-          payers: true,
-          splits: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-            },
-          },
-        },
-        orderBy: { createdAt: "desc" },
+        include: { user: { select: { id: true, name: true, email: true, displayName: true } } },
+        orderBy: [{ status: "asc" }, { role: "asc" }, { createdAt: "asc" }],
       },
     },
   });
+  if (!group) notFound();
 
-  if (!group) {
+  const me = group.members.find((m) => m.userId === userId)!;
+  const isPendingInvite = me.status === "INVITED";
+  const isAdmin = me.status === "ACTIVE" && (me.role === "ADMIN" || me.role === "OWNER");
+
+  if (isPendingInvite) {
+    const inviter = me.invitedBy
+      ? await prisma.user.findUnique({ where: { id: me.invitedBy }, select: { name: true, email: true } })
+      : null;
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Group not found</h1>
-          <p className="text-gray-600 mb-6">The group you&apos;re looking for doesn&apos;t exist or you don&apos;t have access to it.</p>
-          <Link href="/dashboard" className="text-blue-600 hover:text-blue-800 underline">
-            Back to Dashboard
-          </Link>
-        </div>
-      </div>
+      <>
+        <PageHeader back={back} title={group.name} description={group.description || undefined} />
+        <Card className="max-w-xl p-5">
+          <p className="text-sm text-slate-700">
+            {inviter ? (inviter.name || inviter.email) + " invited you" : "You were invited"} to split expenses in{" "}
+            <span className="font-medium">{group.name}</span>. Join to see balances and add expenses.
+          </p>
+          <div className="mt-4">
+            {me.inviteToken ? (
+              <ButtonLink href={`/invite/${me.inviteToken}`}>Review invite</ButtonLink>
+            ) : (
+              <Alert tone="warning">This invite has expired. Ask a group admin to invite you again.</Alert>
+            )}
+          </div>
+        </Card>
+      </>
     );
   }
 
-  // Balances come from the same ledger as the settlements API
-  const ledger = await loadGroupSettlements(group.id);
-  const memberBalances = new Map<string, number>(
-    (ledger?.balances ?? []).map((b) => [b.userId, b.netBalance])
-  );
+  const [ledger, history, expensesRaw, expenseCount] = await Promise.all([
+    loadGroupSettlements(group.id),
+    loadPaymentHistory(group.id),
+    prisma.expense.findMany({
+      where: { groupId: group.id, isDeleted: false },
+      include: expenseListInclude,
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      take: 8,
+    }),
+    prisma.expense.count({ where: { groupId: group.id, isDeleted: false } }),
+  ]);
+  if (!ledger) notFound();
+  const adminSet = new Set(isAdmin ? [group.id] : []);
+  const expenses = expensesRaw.map((e) => serializeExpense(e, userId, adminSet));
+  const balanceOf = new Map(ledger.balances.map((b) => [b.userId, b.netBalance]));
+  const myNet = balanceOf.get(userId) ?? 0;
 
-  // Find current user's role in the group
-  const currentUserMember = group.members.find((member) => member.userId === user.id);
-  const isAdmin =
-    currentUserMember?.status === "ACTIVE" &&
-    (currentUserMember.role === "ADMIN" || currentUserMember.role === "OWNER");
-  const isPendingInvite = currentUserMember?.status === "INVITED";
+  const members: MemberRow[] = group.members.map((m) => ({
+    id: m.id,
+    userId: m.userId,
+    role: m.role,
+    status: m.status as "ACTIVE" | "INVITED",
+    inviteLink: isAdmin && m.status === "INVITED" && m.inviteToken ? appUrl(`/invite/${m.inviteToken}`) : null,
+    name: m.user.name || m.user.displayName || m.user.email,
+    email: m.user.email,
+    balance: m.status === "ACTIVE" ? (balanceOf.get(m.userId) ?? 0) : null,
+  }));
+  const activeCount = members.filter((m) => m.status === "ACTIVE").length;
+  const myCents = Math.round(myNet * 100);
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">{group.name}</h1>
-              {group.description && (
-                <p className="text-gray-600 mt-1">{group.description}</p>
-              )}
-              <p className="text-sm text-gray-500 mt-2">
-                Currency: {group.currency} • {group.members.length} members
-              </p>
-            </div>
-            <div className="flex space-x-3">
-              <Link
-                href={`/groups/${group.id}/expenses/create`}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Add Expense
-              </Link>
-              {isAdmin && (
-                <Link
-                  href={`/groups/${group.id}/settings`}
-                  className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Settings
-                </Link>
-              )}
-            </div>
-          </div>
-        </div>
+    <>
+      <PageHeader
+        back={back}
+        title={group.name}
+        description={
+          <>
+            {group.description ? <>{group.description} · </> : null}
+            {group.currency} · {activeCount} {activeCount === 1 ? "member" : "members"}
+          </>
+        }
+        actions={
+          <ButtonLink href={`/groups/${group.id}/expenses/create`}>
+            <Plus /> Add expense
+          </ButtonLink>
+        }
+      />
 
+      <div
+        className={
+          "mb-5 flex flex-wrap items-baseline justify-between gap-2 rounded-xl border px-4 py-3 sm:px-5 " +
+          (myCents > 0
+            ? "border-emerald-200 bg-emerald-50"
+            : myCents < 0
+              ? "border-rose-200 bg-rose-50"
+              : "border-slate-200 bg-white")
+        }
+      >
+        <p className="text-sm text-slate-700">
+          {myCents > 0 ? "You are owed in this group" : myCents < 0 ? "You owe in this group" : "You are settled up in this group"}
+        </p>
+        {myCents !== 0 && <Money amount={myNet} currency={group.currency} absolute className="text-xl font-semibold" />}
+      </div>
 
-        {isPendingInvite && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-sm text-amber-800">
-            You have been invited to this group. Open the invite link you received to join and see balances.
-          </div>
-        )}
-
-        {/* Balances, suggested payments and payment history */}
-        {!isPendingInvite && (
-          <SettlementSuggestions
-            group={{
-              id: group.id,
-              name: group.name,
-              currency: group.currency,
-            }}
-            currentUserId={user.id}
+      <div className="grid gap-5 lg:grid-cols-5">
+        <div className="min-w-0 space-y-5 lg:col-span-3">
+          <SettleUpCard
+            groupId={group.id}
+            currency={group.currency}
+            ledger={ledger}
+            currentUserId={userId}
             isAdmin={isAdmin}
           />
-        )}
-
-        {/* Member Management */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <MemberManagement
-            group={{
-              id: group.id,
-              name: group.name,
-              currency: group.currency,
-              members: group.members.map((member) => ({
-                id: member.id,
-                userId: member.userId,
-                role: member.role,
-                status: member.status,
-                inviteLink:
-                  isAdmin && member.status === "INVITED" && member.inviteToken
-                    ? appUrl(`/invite/${member.inviteToken}`)
-                    : null,
-                user: {
-                  id: member.user.id,
-                  name: member.user.name,
-                  email: member.user.email || "",
-                },
-              })),
-            }}
-            memberBalances={memberBalances}
-            currentUser={user}
+          <Card>
+            <CardHeader
+              title="Recent expenses"
+              description={`${expenseCount} total`}
+              action={
+                expenseCount > 0 ? (
+                  <Link href={`/groups/${group.id}/expenses`} className="text-sm font-medium text-brand-700 hover:underline">
+                    View all
+                  </Link>
+                ) : null
+              }
+            />
+            {expenses.length === 0 ? (
+              <EmptyState
+                icon={<Receipt />}
+                title="No expenses yet"
+                description="Add the first one and FairShare works out who owes whom."
+                action={
+                  <ButtonLink href={`/groups/${group.id}/expenses/create`} size="sm">
+                    <Plus /> Add expense
+                  </ButtonLink>
+                }
+              />
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {expenses.map((e) => {
+                  const payer =
+                    e.payers.length === 1
+                      ? e.payers[0].userId === userId
+                        ? "You"
+                        : e.payers[0].user.name || e.payers[0].user.email
+                      : `${e.payers.length} people`;
+                  return (
+                    <li key={e.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
+                      <CategoryIcon category={e.category} />
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2 break-words text-sm font-medium text-slate-900 sm:truncate">{e.description}</p>
+                        <p className="truncate text-xs text-slate-500">
+                          {payer} paid · {formatDate(e.date)}
+                        </p>
+                      </div>
+                      <ExpenseShare expense={e} currency={group.currency} />
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
+          <PaymentsCard history={history} currency={group.currency} currentUserId={userId} />
+        </div>
+        <div className="min-w-0 space-y-5 lg:col-span-2">
+          <BalancesCard ledger={ledger} currency={group.currency} currentUserId={userId} />
+          <MembersCard
+            groupId={group.id}
+            groupName={group.name}
+            currency={group.currency}
+            members={members}
+            currentUserId={userId}
             isAdmin={isAdmin}
           />
-        </div>
-
-        {/* Recent Expenses */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Recent Expenses
-            </h2>
-            <Link
-              href={`/groups/${group.id}/expenses`}
-              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-            >
-              View All
-            </Link>
-          </div>
-          {group.expenses.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500 mb-4">No expenses yet</p>
-              <Link
-                href={`/groups/${group.id}/expenses/create`}
-                className="text-blue-600 hover:text-blue-800 font-medium"
-              >
-                Add your first expense
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {group.expenses.slice(0, 5).map((expense) => (
-                <div
-                  key={expense.id}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                >
-                  <div>
-                    <div className="font-medium text-gray-900">
-                      {expense.description}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {expense.category} •{" "}
-                      {new Date(expense.date).toLocaleDateString()}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-medium text-gray-900">
-                      {formatCurrency(Number(expense.amount), group.currency)}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Paid by{" "}
-                      {expense.payers.length === 1
-                        ? group.members.find(
-                            (m) => m.userId === expense.payers[0].userId
-                          )?.user.name ||
-                          group.members.find(
-                            (m) => m.userId === expense.payers[0].userId
-                          )?.user.email ||
-                          ""
-                        : `${expense.payers.length} people`}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
-    </div>
+    </>
   );
 }
