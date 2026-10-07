@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "npm run db:generate && next build --turbopack",
+    "db:deploy": "prisma migrate deploy",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "prisma generate",
