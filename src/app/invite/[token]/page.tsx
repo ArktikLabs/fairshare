@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import Link from "next/link";
+import { Button, ButtonLink } from "@/components/ui/button";
+import { Alert, Skeleton } from "@/components/ui/primitives";
+import { AuthCard } from "@/components/site/auth-card";
+import { formatDate } from "@/lib/utils";
 
 interface InvitationDetails {
   id: string;
@@ -29,12 +32,12 @@ export default function InvitePage() {
     if (!token) return;
     (async () => {
       try {
-        const response = await fetch(`/api/invite/${token}`);
-        const data = await response.json();
-        if (response.ok) setInvitation(data);
-        else setError(data.error || "Invalid or expired invitation");
+        const res = await fetch(`/api/invite/${token}`);
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) setInvitation(data);
+        else setError(data.error || "This invitation is not valid or has expired");
       } catch {
-        setError("Failed to load invitation");
+        setError("Could not load the invitation");
       } finally {
         setLoading(false);
       }
@@ -45,13 +48,12 @@ export default function InvitePage() {
     setAccepting(true);
     setError("");
     try {
-      const response = await fetch(`/api/invite/${token}`, { method: "POST" });
-      const data = await response.json();
-      if (response.ok) {
+      const res = await fetch(`/api/invite/${token}`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
         router.push(data.redirectTo || "/dashboard");
-      } else {
-        setError(data.error || "Failed to accept invitation");
-      }
+        router.refresh();
+      } else setError(data.error || "Could not accept the invitation");
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -66,88 +68,84 @@ export default function InvitePage() {
 
   if (loading || status === "loading") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-2 text-gray-600">Loading invitation...</p>
+      <AuthCard title="Loading invitation">
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-4 w-1/2" />
+          <Skeleton className="mt-4 h-10 w-full" />
         </div>
-      </div>
+      </AuthCard>
     );
   }
 
   if (!invitation) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <div className="max-w-md w-full bg-white rounded-lg shadow-md p-6 text-center">
-          <h1 className="text-xl font-semibold text-gray-900 mb-2">Invalid invitation</h1>
-          <p className="text-gray-600 mb-4">{error || "This invitation link is not valid."}</p>
-          <Link href="/dashboard" className="inline-flex px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-            Go to dashboard
-          </Link>
-        </div>
-      </div>
+      <AuthCard title="Invitation not valid" subtitle={error || "This invitation link is not valid."}>
+        <p className="mb-4 text-sm text-slate-600">Ask the person who invited you to send a new invite.</p>
+        <ButtonLink href={session ? "/dashboard" : "/"} className="w-full">
+          {session ? "Go to dashboard" : "Go to FairShare"}
+        </ButtonLink>
+      </AuthCard>
     );
   }
 
+  const inviter = invitation.inviter?.name || invitation.inviter?.email || "Someone";
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4">
-      <div className="max-w-md w-full bg-white rounded-lg shadow-md p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Join {invitation.group.name}</h1>
-        <p className="text-gray-600 mb-6">
-          {invitation.inviter?.name || invitation.inviter?.email || "Someone"} invited{" "}
-          <strong>{invitedEmail}</strong> to split expenses in this group.
-        </p>
-
-        <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-6 text-sm text-blue-800 space-y-1">
-          {invitation.group.description && <p>{invitation.group.description}</p>}
-          <p>Currency: {invitation.group.currency}</p>
-          <p>Role: {invitation.role.toLowerCase()}</p>
-          {invitation.expiresAt && (
-            <p>Expires: {new Date(invitation.expiresAt).toLocaleDateString()}</p>
-          )}
+    <AuthCard
+      title={`Join ${invitation.group.name}`}
+      subtitle={
+        <>
+          {inviter} invited <span className="font-medium text-slate-700">{invitedEmail}</span> to split expenses.
+        </>
+      }
+    >
+      <dl className="mb-5 space-y-1 text-sm">
+        {invitation.group.description && <p className="mb-2 text-slate-600">{invitation.group.description}</p>}
+        <div className="flex justify-between">
+          <dt className="text-slate-500">Currency</dt>
+          <dd className="font-medium text-slate-900">{invitation.group.currency}</dd>
         </div>
-
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">{error}</div>
-        )}
-
-        {session ? (
-          <div className="space-y-3">
-            {isOtherAccount && (
-              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
-                You are signed in as {session.user?.email}. Accepting adds this account to the group
-                {invitation.user.isGhost
-                  ? ", and expenses already recorded for the invited email move to it."
-                  : "."}
-              </p>
-            )}
-            <button
-              onClick={accept}
-              disabled={accepting}
-              className="w-full py-2 px-4 rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-            >
-              {accepting ? "Joining..." : "Accept invitation"}
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {invitation.user.isGhost ? (
-              <Link
-                href={`/auth/register?email=${encodeURIComponent(invitedEmail)}&callbackUrl=${encodeURIComponent(here)}`}
-                className="block w-full text-center py-2 px-4 rounded-md text-white bg-blue-600 hover:bg-blue-700"
-              >
-                Create account to join
-              </Link>
-            ) : null}
-            <Link
-              href={`/auth/signin?callbackUrl=${encodeURIComponent(here)}`}
-              className="block w-full text-center py-2 px-4 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              I already have an account
-            </Link>
+        {invitation.expiresAt && (
+          <div className="flex justify-between">
+            <dt className="text-slate-500">Invite expires</dt>
+            <dd className="text-slate-900">{formatDate(invitation.expiresAt)}</dd>
           </div>
         )}
-      </div>
-    </div>
+      </dl>
+      {error && <Alert tone="error" className="mb-4">{error}</Alert>}
+      {session ? (
+        <div className="space-y-3">
+          {isOtherAccount && (
+            <Alert tone="warning">
+              You are signed in as {session.user?.email}. Accepting adds this account to the group
+              {invitation.user.isGhost ? ", and expenses already recorded for the invited email move to it." : "."}
+            </Alert>
+          )}
+          <Button onClick={accept} disabled={accepting} className="w-full" size="lg">
+            {accepting ? "Joining..." : "Accept and join"}
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {invitation.user.isGhost && (
+            <ButtonLink
+              href={`/auth/register?email=${encodeURIComponent(invitedEmail)}&callbackUrl=${encodeURIComponent(here)}`}
+              className="w-full"
+              size="lg"
+            >
+              Create account to join
+            </ButtonLink>
+          )}
+          <ButtonLink
+            href={`/auth/signin?callbackUrl=${encodeURIComponent(here)}`}
+            variant={invitation.user.isGhost ? "secondary" : "primary"}
+            className="w-full"
+            size="lg"
+          >
+            I already have an account
+          </ButtonLink>
+        </div>
+      )}
+    </AuthCard>
   );
 }

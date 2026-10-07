@@ -1,41 +1,17 @@
-import Link from "next/link";
+import { ButtonLink } from "@/components/ui/button";
+import { AuthCard } from "@/components/site/auth-card";
 
 export default function InvitationExpired() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full bg-white shadow-lg rounded-lg p-8 text-center">
-        <div className="mb-6">
-          <div className="w-16 h-16 mx-auto bg-red-100 rounded-full flex items-center justify-center">
-            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-        </div>
-        
-        <h1 className="text-2xl font-bold text-gray-900 mb-4">
-          Invitation Expired
-        </h1>
-        
-        <p className="text-gray-600 mb-6">
-          This invitation link has expired or is no longer valid. Please contact the group administrator for a new invitation.
-        </p>
-        
-        <div className="space-y-3">
-          <Link
-            href="/"
-            className="block w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
-          >
-            Go to Home
-          </Link>
-          
-          <a
-            href="/auth/signin"
-            className="block w-full bg-gray-100 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-200 transition-colors"
-          >
-            Sign In
-          </a>
-        </div>
+    <AuthCard title="Invitation expired" subtitle="This invitation link has expired or was cancelled. Ask a group admin to invite you again; the new email contains a fresh link.">
+      <div className="space-y-2">
+        <ButtonLink href="/dashboard" className="w-full">
+          Go to dashboard
+        </ButtonLink>
+        <ButtonLink href="/" variant="secondary" className="w-full">
+          FairShare home
+        </ButtonLink>
       </div>
-    </div>
+    </AuthCard>
   );
 }
