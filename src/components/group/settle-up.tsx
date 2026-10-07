@@ -34,6 +34,7 @@ export function SettleUpCard({
   isAdmin,
   readOnly = false,
   reminderCooldowns = {},
+  hideSimplifyNote = false,
 }: {
   groupId: string;
   currency: string;
@@ -44,6 +45,8 @@ export function SettleUpCard({
   readOnly?: boolean;
   /** "debtor:creditor" -> ISO time a reminder is allowed again */
   reminderCooldowns?: Record<string, string>;
+  /** 1:1 balances have nothing to simplify */
+  hideSimplifyNote?: boolean;
 }) {
   const router = useRouter();
   const [paying, setPaying] = useState<Settlement | null>(null);
@@ -145,8 +148,8 @@ export function SettleUpCard({
         description={
           suggestions.length === 0
             ? "Nobody owes anything"
-            : `${suggestions.length} payment${suggestions.length === 1 ? "" : "s"} clear every balance${
-                ledger.simplify === false ? " (direct debts, not simplified)" : ""
+            : `${suggestions.length === 1 ? "1 payment clears" : `${suggestions.length} payments clear`} every balance${
+                ledger.simplify === false && !hideSimplifyNote ? " (direct debts, not simplified)" : ""
               }`
         }
       />

@@ -92,9 +92,9 @@ function CurrencySection({ c, showHeading }: { c: CurrencyInsights; showHeading:
   const avg = Math.round(c.totalCents / Math.max(1, c.byMonth.length));
   return (
     <section aria-labelledby={`cur-${c.currency}`} className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Stat id={`cur-${c.currency}`} label={showHeading ? `Your share (${c.currency})` : "Your share"} value={formatCurrency(c.totalCents / 100, c.currency)} />
-        <Stat label="Per month (average)" value={formatCurrency(avg / 100, c.currency)} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <Stat className="col-span-2 sm:col-span-1" id={`cur-${c.currency}`} label={showHeading ? `Your share (${c.currency})` : "Your share"} value={formatCurrency(c.totalCents / 100, c.currency)} />
+        <Stat label="Per month (avg)" value={formatCurrency(avg / 100, c.currency)} />
         <Stat label="Expenses" value={String(c.expenseCount)} />
       </div>
 
@@ -161,9 +161,9 @@ function CurrencySection({ c, showHeading }: { c: CurrencyInsights; showHeading:
   );
 }
 
-function Stat({ label, value, id }: { label: string; value: string; id?: string }) {
+function Stat({ label, value, id, className }: { label: string; value: string; id?: string; className?: string }) {
   return (
-    <Card>
+    <Card className={className}>
       <div className="px-4 py-3">
         <p id={id} className="text-xs text-slate-500">
           {label}
