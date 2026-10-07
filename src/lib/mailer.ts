@@ -1,6 +1,10 @@
 // Minimal transactional email. Uses the Resend HTTP API when RESEND_API_KEY
 // and EMAIL_FROM are set; otherwise the message is printed in development and
 // dropped in production (never log tokens in production logs).
+// Every email (outbox, invites, password reset) goes through deliverMail, which
+// refuses reserved test domains (see email-domains.ts).
+
+import { isReservedEmail, RESERVED_DOMAIN_REASON } from "./email-domains";
 
 export interface MailMessage {
   to: string;
@@ -10,7 +14,9 @@ export interface MailMessage {
   headers?: Record<string, string>;
 }
 
-export type MailResult = { ok: true; id: string | null } | { ok: false; error: string; notConfigured?: boolean; retryable?: boolean };
+export type MailResult =
+  | { ok: true; id: string | null }
+  | { ok: false; error: string; notConfigured?: boolean; retryable?: boolean; /** never attempted on purpose (reserved domain) */ skipped?: boolean };
 
 export function appUrl(path = ""): string {
   const base = (process.env.AUTH_URL || process.env.NEXTAUTH_URL || "http://localhost:3000").replace(/\/+$/, "");
@@ -23,6 +29,14 @@ export function isMailConfigured() {
 
 /** Send with a detailed result (used by the notification outbox). Never throws. */
 export async function deliverMail(msg: MailMessage): Promise<MailResult> {
+  // Test accounts use reserved domains (smoke.invalid, demo.test): never hand
+  // them to Resend, the bounces damage the sending domain's reputation.
+  if (isReservedEmail(msg.to)) {
+    if (process.env.NODE_ENV !== "production") {
+      console.info(`[mail:skip] to=${msg.to} subject="${msg.subject}" (${RESERVED_DOMAIN_REASON})`);
+    }
+    return { ok: false, error: RESERVED_DOMAIN_REASON, skipped: true, retryable: false };
+  }
   if (!isMailConfigured()) {
     if (process.env.NODE_ENV !== "production") {
       console.info(`[mail:dev] to=${msg.to} subject="${msg.subject}"\n${msg.text}`);

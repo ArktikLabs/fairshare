@@ -6,6 +6,7 @@ import type { NotificationChannel, Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { deliverMail } from "../mailer";
 import { sendWhatsAppText } from "./whatsapp-waha";
+import { isReservedEmail, RESERVED_DOMAIN_REASON } from "../email-domains";
 
 export const MAX_ATTEMPTS = 5;
 
@@ -67,8 +68,11 @@ export async function sendNotification(id: string): Promise<"sent" | "failed" | 
   if (!n) return "busy";
   const p = (n.payload ?? {}) as Record<string, string | Record<string, string>>;
 
-  let result: { ok: true } | { ok: false; error: string; notConfigured?: boolean; retryable?: boolean };
-  if (n.channel === "EMAIL") {
+  let result: { ok: true } | { ok: false; error: string; notConfigured?: boolean; retryable?: boolean; skipped?: boolean };
+  if (isReservedEmail(n.user.email)) {
+    // Test account (smoke/demo): no email and no WhatsApp, ever
+    result = { ok: false, error: RESERVED_DOMAIN_REASON, skipped: true };
+  } else if (n.channel === "EMAIL") {
     result = await deliverMail({
       to: n.user.email,
       subject: String(p.subject ?? "FairShare"),
@@ -89,7 +93,7 @@ export async function sendNotification(id: string): Promise<"sent" | "failed" | 
     await prisma.notification.update({ where: { id }, data: { status: "SENT", sentAt: new Date(), lastError: null } });
     return "sent";
   }
-  if (result.notConfigured) {
+  if (result.notConfigured || result.skipped) {
     await prisma.notification.update({ where: { id }, data: { status: "SKIPPED", lastError: result.error } });
     return "skipped";
   }

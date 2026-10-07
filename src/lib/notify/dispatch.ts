@@ -4,6 +4,7 @@
 
 import { prisma } from "../prisma";
 import { appUrl } from "../mailer";
+import { isReservedEmail, RESERVED_DOMAIN_REASON } from "../email-domains";
 import type { ActivityLike, ActivityPayload } from "../activity-format";
 import { describeActivity } from "../activity-format";
 import { eventForActivity, recipientsFor, wants, type NotifyEvent } from "./events";
@@ -99,6 +100,7 @@ async function buildMessages(a: ActivityLike & { id: string }): Promise<QueuedMe
         event,
         channel: "EMAIL",
         dedupeKey: `${a.id}:${u.id}:EMAIL`,
+        skipReason: isReservedEmail(u.email) ? RESERVED_DOMAIN_REASON : undefined,
         payload: {
           subject: r.subject,
           text: r.text,
@@ -115,7 +117,7 @@ async function buildMessages(a: ActivityLike & { id: string }): Promise<QueuedMe
         channel: "WHATSAPP",
         dedupeKey: `${a.id}:${u.id}:WHATSAPP`,
         payload: { text: r.whatsapp },
-        skipReason: waReady ? undefined : "WhatsApp is not configured",
+        skipReason: isReservedEmail(u.email) ? RESERVED_DOMAIN_REASON : waReady ? undefined : "WhatsApp is not configured",
       });
     }
   }

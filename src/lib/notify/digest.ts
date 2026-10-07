@@ -4,6 +4,7 @@
 
 import { prisma } from "../prisma";
 import { appUrl } from "../mailer";
+import { isReservedEmail, RESERVED_DOMAIN_REASON } from "../email-domains";
 import { describeActivity, type ActivityPayload } from "../activity-format";
 import { loadUserOverview } from "../overview";
 import { formatCurrency } from "../utils";
@@ -35,7 +36,14 @@ export async function runDigests(now = new Date(), limit = 50): Promise<{ queued
     if (!msg) continue;
     const week = now.toISOString().slice(0, 10);
     const ids = await enqueue([
-      { userId: p.userId, event: "digest", channel: "EMAIL", dedupeKey: `digest:${p.userId}:${week}`, payload: msg },
+      {
+        userId: p.userId,
+        event: "digest",
+        channel: "EMAIL",
+        dedupeKey: `digest:${p.userId}:${week}`,
+        payload: msg.payload,
+        skipReason: isReservedEmail(msg.email) ? RESERVED_DOMAIN_REASON : undefined,
+      },
     ]);
     queued += ids.length;
   }
@@ -84,5 +92,5 @@ async function buildDigest(userId: string, since: Date) {
       reason: "You get this weekly summary because you turned it on.",
     },
   });
-  return { subject: "Your week on FairShare", text, html, headers: { "List-Unsubscribe": `<${oneClickUrl(unsubscribeUrl(userId, "digest"))}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } };
+  return { email: user.email, payload: { subject: "Your week on FairShare", text, html, headers: { "List-Unsubscribe": `<${oneClickUrl(unsubscribeUrl(userId, "digest"))}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } } };
 }
