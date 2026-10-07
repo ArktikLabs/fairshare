@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 import { acceptGroupInvitation } from "@/lib/ghost-users";
 import { recordActivity } from "@/lib/activity";
 
@@ -27,17 +28,16 @@ export async function POST(
     const { id: groupId } = await params;
 
     try {
+      // Check the token belongs to this group BEFORE accepting it, so a
+      // mismatched URL cannot join the user and then report an error.
+      const invited = await prisma.groupMember.findFirst({ where: { inviteToken }, select: { groupId: true } });
+      if (invited && invited.groupId !== groupId) {
+        return NextResponse.json({ error: "Group ID mismatch" }, { status: 400 });
+      }
+
       // Accept invitation using Ghost Users system
       const updatedMember = await acceptGroupInvitation(inviteToken, session.user.id);
       await recordActivity({ type: "MEMBER_JOINED", actorId: session.user.id, groupId: updatedMember.group.id });
-
-      // Verify the group ID matches
-      if (updatedMember.group.id !== groupId) {
-        return NextResponse.json(
-          { error: "Group ID mismatch" },
-          { status: 400 }
-        );
-      }
 
       console.log(
         `User ${session.user.id} joined group ${groupId} via invitation`

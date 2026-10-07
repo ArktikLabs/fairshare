@@ -27,18 +27,20 @@ export function formatCurrency(amount: number, currency: string = 'USD'): string
 /**
  * Format date for display
  */
-export function formatDate(date: Date | string): string {
+export function formatDate(date: Date | string, timeZone?: string | null): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   // Calendar dates (expense dates, recurrence dates) are stored as UTC
   // midnight: read them in UTC so a browser west of UTC does not show the
-  // previous day. Real timestamps use the viewer's zone.
+  // previous day. Real timestamps use the given zone, else the runtime's zone
+  // (which differs between server and browser: in client components render
+  // timestamps through <LocalDate> to stay hydration-safe).
   const calendar = d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0;
-  return d.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    ...(calendar ? { timeZone: 'UTC' } : {}),
-  });
+  const zone = calendar ? 'UTC' : timeZone || undefined;
+  try {
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', ...(zone ? { timeZone: zone } : {}) });
+  } catch {
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  }
 }
 
 /**

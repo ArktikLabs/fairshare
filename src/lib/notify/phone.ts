@@ -46,7 +46,10 @@ export async function rateLimitFor(userId: string, phone: string, now = new Date
  * Save the number (unverified) and send a code. In disabled mode (no WAHA
  * env) the number is saved but no code can be sent.
  */
-export async function startVerification(userId: string, rawPhone: string): Promise<{ phone: string; sent: boolean; devCode?: string }> {
+export async function startVerification(
+  userId: string,
+  rawPhone: string
+): Promise<{ phone: string; sent: boolean; message?: string; devCode?: string }> {
   const phone = normalizePhone(rawPhone);
   if (!phone) throw new PhoneError(400, "Enter the number with its country code, e.g. +62 812 3456 7890");
   const taken = await prisma.user.findFirst({ where: { phone, phoneVerifiedAt: { not: null }, id: { not: userId } }, select: { id: true } });
@@ -56,7 +59,10 @@ export async function startVerification(userId: string, rawPhone: string): Promi
   if (user?.phone !== phone) {
     await prisma.user.update({ where: { id: userId }, data: { phone, phoneVerifiedAt: null } });
   }
-  if (!isWhatsAppConfigured()) throw new PhoneError(503, "WhatsApp messages are not available yet. Your number is saved; verify it once WhatsApp is turned on.");
+  // Expected state, not an error: the number is kept and nothing is sent.
+  if (!isWhatsAppConfigured()) {
+    return { phone, sent: false, message: "WhatsApp messages are not available yet. Your number is saved; verify it once WhatsApp is turned on." };
+  }
 
   const retryAt = await rateLimitFor(userId, phone);
   if (retryAt) throw new PhoneError(429, "Too many codes. Try again later.", retryAt);

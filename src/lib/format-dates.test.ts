@@ -5,6 +5,15 @@ describe("formatDate", () => {
   it("reads calendar dates (UTC midnight) as that day in any zone", () => {
     expect(formatDate("2026-10-08T00:00:00.000Z")).toBe("Oct 8, 2026");
   });
+  it("puts a timestamp on the day in the given zone (server and browser must agree)", () => {
+    // 16:30 UTC = 00:30 next day in Shanghai, still the same day in Jakarta:
+    // the root of the group-page hydration mismatch.
+    const iso = "2026-10-07T16:30:00.000Z";
+    expect(formatDate(iso, "UTC")).toBe("Oct 7, 2026");
+    expect(formatDate(iso, "Asia/Shanghai")).toBe("Oct 8, 2026");
+    expect(formatDate(iso, "Asia/Jakarta")).toBe("Oct 7, 2026");
+    expect(() => formatDate(iso, "Not/AZone")).not.toThrow();
+  });
 });
 
 describe("formatDateTime", () => {

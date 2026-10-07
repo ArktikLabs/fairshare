@@ -46,7 +46,7 @@ export default async function SettlementsPage() {
           />
         </Card>
       ) : (
-        <div className="grid gap-5 md:grid-cols-2">
+        <div className="grid gap-5 md:grid-cols-2 [&>*]:min-w-0">
           {open.map((g) => (
             <Card key={g.id}>
               <CardHeader

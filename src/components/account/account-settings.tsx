@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { Download, KeyRound, LogOut, Trash2 } from "lucide-react";
 import { useWebAuthn } from "@/hooks/useWebAuthn";
-import { formatDate } from "@/lib/utils";
+import { LocalDate } from "@/components/ui/local-date";
 import { resolveCurrency } from "@/lib/currencies";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/input";
@@ -211,9 +211,9 @@ export function AccountSettings({
   };
 
   return (
-    <div className="grid max-w-3xl gap-5">
+    <div className="grid max-w-3xl gap-5 [&>*]:min-w-0">
       <Card>
-        <CardHeader title="Profile" description={`Member since ${formatDate(profile.memberSince)}`} />
+        <CardHeader title="Profile" description={<>Member since <LocalDate value={profile.memberSince} /></>} />
         <CardBody>
           <form onSubmit={saveName} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">

@@ -434,7 +434,7 @@ export function ExpenseForm({
     : "";
 
   return (
-    <form onSubmit={submit} noValidate className="grid gap-5 lg:grid-cols-5">
+    <form onSubmit={submit} noValidate className="grid gap-5 lg:grid-cols-5 [&>*]:min-w-0">
       <div className="min-w-0 space-y-5 lg:col-span-3">
         <Card className="space-y-4 p-4 sm:p-5">
           {allowGroupSwitch && groups.length > 1 && (

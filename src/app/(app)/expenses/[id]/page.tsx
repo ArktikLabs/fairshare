@@ -120,7 +120,7 @@ export default async function ExpenseDetailPage({
         </Alert>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-5">
+      <div className="grid gap-5 lg:grid-cols-5 [&>*]:min-w-0">
         <div className="min-w-0 space-y-5 lg:col-span-3">
           <Card>
             <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 px-4 py-4 sm:px-5">

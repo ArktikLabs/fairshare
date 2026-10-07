@@ -98,7 +98,7 @@ function CurrencySection({ c, showHeading }: { c: CurrencyInsights; showHeading:
         <Stat label="Expenses" value={String(c.expenseCount)} />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-5">
+      <div className="grid gap-5 lg:grid-cols-5 [&>*]:min-w-0">
         <Card className="min-w-0 lg:col-span-3">
           <CardHeader title="By month" />
           <CardBody>

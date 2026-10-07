@@ -65,7 +65,7 @@ export function NotificationSettings({ initial }: { initial: Settings }) {
   };
 
   return (
-    <div className="grid max-w-3xl gap-5">
+    <div className="grid max-w-3xl gap-5 [&>*]:min-w-0">
       <WhatsAppCard settings={s} onChange={(p) => setS((cur) => ({ ...cur, ...p }))} />
 
       <Card>
@@ -168,18 +168,19 @@ function WhatsAppCard({ settings: s, onChange }: { settings: Settings; onChange:
         body: JSON.stringify({ action: "send", phone }),
       });
       const j = await res.json().catch(() => ({}));
-      if (res.ok) {
+      if (res.ok && j.sent === false) {
+        // WhatsApp is off on this server: number saved, no code sent
+        onChange({ phone: j.phone ?? phone, phoneVerified: false });
+        setEditing(false);
+        setStep("idle");
+        setMsg({ tone: "info", text: j.message || "Your number is saved." });
+      } else if (res.ok) {
         onChange({ phone: j.phone, phoneVerified: false });
         setStep("code");
         setEditing(false);
         setMsg({ tone: "info", text: `We sent a 6-digit code to ${prettyPhone(j.phone)} on WhatsApp.` });
       } else {
-        if (res.status === 503) {
-          onChange({ phone, phoneVerified: false });
-          setEditing(false);
-          setStep("idle");
-        }
-        setMsg({ tone: res.status === 503 ? "info" : "error", text: j.error || "Could not send the code" });
+        setMsg({ tone: "error", text: j.error || "Could not send the code" });
       }
     } catch {
       setMsg({ tone: "error", text: "Network error. Please try again." });

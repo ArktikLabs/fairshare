@@ -1,4 +1,4 @@
-// Shared helpers for the Playwright QA scripts (see scripts/qa/README.md).
+// Shared helpers for the Playwright QA scripts (see docs/TESTING.md).
 import { chromium } from "playwright";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -60,9 +60,11 @@ let counter = Number(process.env.START_AT || 1);
 export async function snap(page, flow, step, { full = true } = {}) {
   await page.waitForTimeout(350);
   const n = String(counter++).padStart(2, "0");
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  let overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   const file = `${n}-${flow}-${step}-${page.viewportSize().width}.png`;
-  await page.screenshot({ path: path.join(OUT, file), fullPage: full });
+  const png = await page.screenshot({ path: path.join(OUT, file), fullPage: full });
+  // scrollWidth can miss content that only widens during the full-page capture; the PNG can't.
+  overflow = Math.max(overflow, png.readUInt32BE(16) - page.viewportSize().width);
   const errs = page.errs.splice(0);
   report.push({ file, overflow, errs });
   const bad = overflow > 0 || errs.length;

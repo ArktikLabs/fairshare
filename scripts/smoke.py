@@ -15,8 +15,8 @@ Environment:
   IDS_FILE        optional: write created ids as JSON here (used by the Playwright QA scripts)
 
 Every account it creates uses a reserved test domain (@demo.test locally,
-@smoke.invalid with --prod), which the mailer never sends to. Remove the data
-afterwards with scripts/cleanup-smoke.sql.
+@smoke.invalid with --prod), which the mailer never sends to. Test data stays
+in the database; use a throwaway dev database (or a tmpfs container).
 """
 import json, os, re, sys, time, io, subprocess, urllib.request, urllib.parse, http.cookiejar, uuid
 
@@ -534,7 +534,7 @@ check("B3 re-enable + weekly digest", code == 200 and j["digest"] == "WEEKLY", t
 code, j, t = a.req("GET", "/api/user/notifications")
 check("B3 WhatsApp reported as not configured", code == 200 and j["whatsappConfigured"] is False, t[:200])
 code, j, t = a.req("POST", "/api/user/phone", {"action": "send", "phone": f"+62 812 {RUN[-8:-4]} {RUN[-4:]}"})
-check("B3 code send refused while WA disabled (503), number kept", code == 503, t[:200])
+check("B3 no code sent while WA disabled (200, sent=false), number kept", code == 200 and j.get("sent") is False, t[:200])
 code, j, t = a.req("GET", "/api/user/notifications")
 check("B3 phone saved but unverified", j["phone"] == f"+62812{RUN[-8:]}" and j["phoneVerified"] is False, t[:200])
 code, j, t = a.req("POST", "/api/user/phone", {"action": "send", "phone": "12"})

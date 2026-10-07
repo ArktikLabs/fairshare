@@ -7,7 +7,8 @@ import type { GroupSettlements, Settlement } from "@/lib/settlement-utils";
 import type { PaymentRecord } from "@/lib/group-ledger";
 import { amountToInput, parseAmount } from "@/lib/split-form";
 import { currencyDigits } from "@/lib/currencies";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
+import { LocalDate, useHydrated } from "@/components/ui/local-date";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/input";
@@ -57,6 +58,8 @@ export function SettleUpCard({
   const [notice, setNotice] = useState("");
   const [reminding, setReminding] = useState<string | null>(null);
   const [reminded, setReminded] = useState<Record<string, string>>(reminderCooldowns);
+  // Before hydration every known cooldown counts as active, so server and client agree.
+  const hydrated = useHydrated();
 
   const remind = async (s: Settlement) => {
     const key = `${s.fromUserId}:${s.toUserId}`;
@@ -196,7 +199,7 @@ export function SettleUpCard({
                 )}
                 {!readOnly && (iGet || isAdmin) && !iPay && (() => {
                   const key = `${s.fromUserId}:${s.toUserId}`;
-                  const cooling = Boolean(reminded[key] && reminded[key] > new Date().toISOString());
+                  const cooling = Boolean(reminded[key] && (!hydrated || reminded[key] > new Date().toISOString()));
                   return (
                     <Button
                       size="sm"
@@ -425,7 +428,7 @@ export function PaymentsCard({
                   <span className="font-medium">{p.to.id === currentUserId ? "you" : p.to.name}</span>
                 </p>
                 <p className="text-xs text-slate-500">
-                  {formatDate(p.createdAt)} · {methodLabel(p.method)}
+                  <LocalDate value={p.createdAt} /> · {methodLabel(p.method)}
                 </p>
               </div>
               <Money amount={p.amount} currency={currency} className="text-sm font-semibold text-slate-900" />
@@ -468,7 +471,7 @@ export function PaymentsCard({
             <p className="text-sm text-slate-600">
               <span className="font-medium text-slate-900">{name(editing.from)}</span> paid{" "}
               <span className="font-medium text-slate-900">{editing.to.id === currentUserId ? "you" : editing.to.name}</span>{" "}
-              on {formatDate(editing.createdAt)}.
+              on <LocalDate value={editing.createdAt} />.
             </p>
             <Field label={`Amount (${currency})`} htmlFor="edit-pay-amount" error={amountError}>
               <Input

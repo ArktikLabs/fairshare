@@ -20,9 +20,12 @@ let num = 1;
 const shot = async (page, flow, stepName, opts) => {
   const n = String(num++).padStart(2, "0");
   await page.waitForTimeout(350);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  const vw = page.viewportSize().width;
+  let overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   const file = `${n}-${flow}-${stepName}-${WIDTH}.png`;
-  await page.screenshot({ path: path.join(OUT, file), fullPage: opts?.full ?? true });
+  const png = await page.screenshot({ path: path.join(OUT, file), fullPage: opts?.full ?? true });
+  // scrollWidth can miss content that only widens during the full-page capture; the PNG can't.
+  overflow = Math.max(overflow, png.readUInt32BE(16) - vw);
   const errs = page.errs.splice(0);
   report.push({ file, overflow, errs });
   console.log(`${overflow > 0 || errs.length ? "FAIL" : "ok  "} ${file}${overflow > 0 ? ` overflow=${overflow}` : ""}${errs.length ? " errs: " + errs.join(" | ") : ""}`);
@@ -416,7 +419,8 @@ if (CHUNKS.includes("C")) {
     await page.locator("[role=alertdialog],[role=dialog]").last().getByRole("button", { name: /delete payment/i }).click();
     await page.waitForTimeout(1500);
     await shot(page, "settle", "payment-deleted-undo");
-    await page.getByRole("button", { name: /^Undo$/ }).click();
+    // Undo in the Payments card (the activity feed has its own Undo too)
+    await page.locator("#payments").getByRole("button", { name: /^Undo$/ }).click();
     await page.waitForTimeout(1500);
     const live = sql(`select count(*) from "Settlement" where "groupId"='${S.gid}' and "deletedAt" is null`);
     check("payment restored by undo", live === "1", live);
@@ -498,9 +502,8 @@ if (CHUNKS.includes("D")) {
     await shot(page, "friends", "added-ghost");
     await go(page, `/friends/${S.budiId}`);
     await shot(page, "friends", "detail");
-    const add = page.getByRole("link", { name: /add (an )?expense/i }).first();
-    await add.click();
-    await page.waitForURL(/expenses\/create/);
+    await page.getByRole("button", { name: /add an expense with/i }).click();
+    await page.waitForURL(/friends\/[^/]+\/expenses\/create/);
     await page.waitForLoadState("networkidle");
     await basics(page, { desc: "Coffee", amount: "50000" });
     await shot(page, "friends", "add-expense");

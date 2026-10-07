@@ -97,7 +97,7 @@ export default async function FriendPage({ params }: { params: Promise<{ id: str
         })}
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-5">
+      <div className="grid gap-5 lg:grid-cols-5 [&>*]:min-w-0">
         <div className="min-w-0 space-y-5 lg:col-span-3">
           {direct && ledger ? (
             <SettleUpCard groupId={direct} currency={ledger.currency} ledger={ledger} currentUserId={userId} isAdmin={false} reminderCooldowns={cooldowns} hideSimplifyNote />

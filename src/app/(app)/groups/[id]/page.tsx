@@ -173,7 +173,7 @@ export default async function GroupDetailPage({ params }: Props) {
       </div>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-5">
+      <div className="grid gap-5 lg:grid-cols-5 [&>*]:min-w-0">
         <div className="min-w-0 space-y-5 lg:col-span-3">
           <SettleUpCard
             groupId={group.id}

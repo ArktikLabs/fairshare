@@ -20,7 +20,7 @@ export default async function FriendsPage() {
     <>
       <GroupsFriendsTabs current="friends" />
       <PageHeader title="Friends" description="Split with one person without making a group. Balances include the groups you share." />
-      <div className="grid gap-5 lg:grid-cols-5">
+      <div className="grid gap-5 lg:grid-cols-5 [&>*]:min-w-0">
         <div className="min-w-0 lg:col-span-3">
           {friends.length === 0 ? (
             <Card>

@@ -80,7 +80,7 @@ export default async function GroupSettingsPage({ params }: { params: Promise<{ 
         title="Group settings"
         description={isAdmin ? "Admins can change these settings." : "Only admins can change these settings."}
       />
-      <div className="grid gap-5 lg:grid-cols-5">
+      <div className="grid gap-5 lg:grid-cols-5 [&>*]:min-w-0">
         <div className="min-w-0 space-y-5 lg:col-span-3">
           <GroupSettingsForm
             group={{

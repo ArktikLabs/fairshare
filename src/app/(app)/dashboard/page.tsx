@@ -113,7 +113,7 @@ export default async function DashboardPage() {
             })}
           </section>
 
-          <div className="grid gap-5 lg:grid-cols-5">
+          <div className="grid gap-5 lg:grid-cols-5 [&>*]:min-w-0">
             <div className="space-y-5 lg:col-span-3">
               <Card>
                 <CardHeader
