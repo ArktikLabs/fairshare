@@ -78,14 +78,13 @@ export async function inviteUserToGroup({
     if (existingMember.status === MemberStatus.ACTIVE) {
       throw new Error('User is already an active member of this group');
     } else if (existingMember.status === MemberStatus.INVITED) {
-      // Update existing invitation
-      return await prisma.groupMember.update({
+      // Already invited: keep the existing token so links that were already
+      // shared keep working; only push the expiry out. Role is left as is.
+      const updated = await prisma.groupMember.update({
         where: { id: existingMember.id },
         data: {
-          invitedBy,
           expiresAt: new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000),
-          inviteToken: generateInviteToken(),
-          role,
+          inviteToken: existingMember.inviteToken ?? generateInviteToken(),
         },
         include: {
           user: true,
@@ -93,6 +92,7 @@ export async function inviteUserToGroup({
           inviter: true,
         }
       });
+      return { ...updated, alreadyInvited: true as const };
     } else {
       // Reactivate if they left or were removed
       return await prisma.groupMember.update({

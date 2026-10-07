@@ -6,6 +6,8 @@ import { Decimal } from "@prisma/client/runtime/library";
 import type { Prisma } from "@prisma/client";
 import { assertPayersMatchTotal, calculateSplit, toCents } from "@/lib/money";
 import { createOrGetGhostUser, inviteUserToGroup } from "@/lib/ghost-users";
+import { expenseListInclude, involvedWhere, serializeExpense } from "@/lib/expense-serialize";
+import { CATEGORY_VALUES, isCategory } from "@/lib/categories";
 
 // Validation schemas based on RFC
 const PayerSchema = z
@@ -48,20 +50,7 @@ const SimpleExpenseSchema = z.object({
   amount: z.number().positive(),
   description: z.string().min(1),
   date: z.string().optional(),
-  category: z
-    .enum([
-      "FOOD_DRINK",
-      "TRANSPORTATION",
-      "ACCOMMODATION",
-      "ENTERTAINMENT",
-      "SHOPPING",
-      "UTILITIES",
-      "HEALTHCARE",
-      "EDUCATION",
-      "TRAVEL",
-      "OTHER",
-    ])
-    .optional(),
+  category: z.enum(CATEGORY_VALUES).optional(),
   groupId: z.string().optional(),
   splitMethod: z.enum(["EQUAL", "EXACT", "PERCENTAGE", "SHARES"]),
   payers: z.array(PayerSchema).min(1),
@@ -73,20 +62,7 @@ const ItemizedExpenseSchema = z.object({
   amount: z.number().positive(),
   description: z.string().min(1),
   date: z.string().optional(),
-  category: z
-    .enum([
-      "FOOD_DRINK",
-      "TRANSPORTATION",
-      "ACCOMMODATION",
-      "ENTERTAINMENT",
-      "SHOPPING",
-      "UTILITIES",
-      "HEALTHCARE",
-      "EDUCATION",
-      "TRAVEL",
-      "OTHER",
-    ])
-    .optional(),
+  category: z.enum(CATEGORY_VALUES).optional(),
   groupId: z.string().optional(),
   payers: z.array(PayerSchema).min(1),
   items: z.array(ItemSchema).min(1),
@@ -374,60 +350,34 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET /api/expenses - Get expenses with filtering
+// GET /api/expenses - Expenses visible to the user, newest first.
+// Filters: groupId, category, from, to (YYYY-MM-DD, inclusive), q (search).
+// Without `limit` the full list is returned as an array (legacy shape). With
+// `limit` (1-100) the response is { items, nextCursor } and `cursor` pages on.
 export async function GET(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const userId = session.user.id;
 
     const url = new URL(request.url);
     const groupId = url.searchParams.get("groupId");
     const category = url.searchParams.get("category");
     const from = url.searchParams.get("from");
     const to = url.searchParams.get("to");
+    const q = url.searchParams.get("q")?.trim();
+    const limitParam = url.searchParams.get("limit");
+    const cursor = url.searchParams.get("cursor");
+    const limit = limitParam ? Math.min(100, Math.max(1, parseInt(limitParam, 10) || 20)) : null;
 
-    // Build where clause based on user access
-    const whereClause: Prisma.ExpenseWhereInput = {
-      isDeleted: false,
-      OR: [
-        // User is a payer
-        {
-          payers: {
-            some: {
-              userId: session.user.id,
-            },
-          },
-        },
-        // User is in expense splits
-        {
-          splits: {
-            some: {
-              userId: session.user.id,
-            },
-          },
-        },
-        // User is in item splits
-        {
-          items: {
-            some: {
-              splits: {
-                some: {
-                  userId: session.user.id,
-                },
-              },
-            },
-          },
-        },
-      ],
-    };
+    const and: Prisma.ExpenseWhereInput[] = [{ isDeleted: false }];
 
-    // Add filters
     if (groupId) {
       // Group members see every expense of the group, not only their own
       const membership = await prisma.groupMember.findFirst({
-        where: { groupId, userId: session.user.id, status: "ACTIVE" },
+        where: { groupId, userId, status: "ACTIVE", group: { isActive: true } },
         select: { id: true },
       });
       if (!membership) {
@@ -436,67 +386,76 @@ export async function GET(request: NextRequest) {
           { status: 403 }
         );
       }
-      delete whereClause.OR;
-      whereClause.groupId = groupId;
+      and.push({ groupId });
+    } else {
+      // Everything in groups I am active in, plus personal expenses I am on
+      const active = await prisma.groupMember.findMany({
+        where: { userId, status: "ACTIVE", group: { isActive: true } },
+        select: { groupId: true },
+      });
+      and.push({
+        OR: [
+          { groupId: { in: active.map((m) => m.groupId) } },
+          { groupId: null, ...involvedWhere(userId) },
+        ],
+      });
     }
-    
+
     if (category) {
-      whereClause.category = category as "FOOD_DRINK" | "TRANSPORTATION" | "ACCOMMODATION" | "ENTERTAINMENT" | "SHOPPING" | "UTILITIES" | "HEALTHCARE" | "EDUCATION" | "TRAVEL" | "OTHER";
+      if (!isCategory(category)) {
+        return NextResponse.json({ error: "Unknown category" }, { status: 400 });
+      }
+      and.push({ category });
     }
-    
+
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    if ((from && !dateRe.test(from)) || (to && !dateRe.test(to))) {
+      return NextResponse.json({ error: "Dates must be YYYY-MM-DD" }, { status: 400 });
+    }
     if (from || to) {
-      whereClause.date = {};
-      if (from) whereClause.date.gte = new Date(from);
-      if (to) whereClause.date.lte = new Date(to);
+      // Expense dates are stored as UTC midnight of the chosen calendar day
+      const range: Prisma.DateTimeFilter = {};
+      if (from) range.gte = new Date(`${from}T00:00:00.000Z`);
+      if (to) range.lt = new Date(new Date(`${to}T00:00:00.000Z`).getTime() + 86_400_000);
+      and.push({ date: range });
+    }
+
+    if (q) {
+      and.push({
+        OR: [
+          { description: { contains: q, mode: "insensitive" } },
+          { notes: { contains: q, mode: "insensitive" } },
+          { group: { name: { contains: q, mode: "insensitive" } } },
+        ],
+      });
     }
 
     const expenses = await prisma.expense.findMany({
-      where: whereClause,
-      include: {
-        payers: {
-          include: {
-            user: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-        },
-        splits: {
-          include: {
-            user: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-        },
-        items: {
-          include: {
-            splits: {
-              include: {
-                user: {
-                  select: { id: true, name: true, email: true },
-                },
-              },
-            },
-          },
-        },
-        group: {
-          select: { id: true, name: true, currency: true },
-        },
-      },
-      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      where: { AND: and },
+      include: expenseListInclude,
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      ...(limit
+        ? { take: limit + 1, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}) }
+        : {}),
     });
 
     const adminGroups = new Set(
       (
         await prisma.groupMember.findMany({
-          where: { userId: session.user.id, status: "ACTIVE", role: { in: ["OWNER", "ADMIN"] } },
+          where: { userId, status: "ACTIVE", role: { in: ["OWNER", "ADMIN"] } },
           select: { groupId: true },
         })
       ).map((m) => m.groupId)
     );
 
-    return NextResponse.json(
-      expenses.map((e) => serializeExpense(e, session.user.id, adminGroups))
-    );
+    if (!limit) {
+      return NextResponse.json(expenses.map((e) => serializeExpense(e, userId, adminGroups)));
+    }
+    const page = expenses.slice(0, limit);
+    return NextResponse.json({
+      items: page.map((e) => serializeExpense(e, userId, adminGroups)),
+      nextCursor: expenses.length > limit ? page[page.length - 1].id : null,
+    });
   } catch (error) {
     console.error("Error fetching expenses:", error);
     return NextResponse.json(
@@ -504,60 +463,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-type ListedUser = { id: string; name: string | null; email: string };
-type ListedExpense = Prisma.ExpenseGetPayload<{
-  include: {
-    payers: { include: { user: { select: { id: true; name: true; email: true } } } };
-    splits: { include: { user: { select: { id: true; name: true; email: true } } } };
-    items: {
-      include: { splits: { include: { user: { select: { id: true; name: true; email: true } } } } };
-    };
-    group: { select: { id: true; name: true; currency: true } };
-  };
-}>;
-
-/**
- * Plain-number view of an expense for the UI. Item splits are folded into
- * `splits` per person, and `my` holds the current user's paid / share / net
- * so pages don't have to repeat the money math.
- */
-function serializeExpense(e: ListedExpense, userId: string, adminGroups: Set<string>) {
-  const shares = new Map<string, { user: ListedUser; cents: number }>();
-  const addShare = (user: ListedUser, amount: Prisma.Decimal) => {
-    const cur = shares.get(user.id) ?? { user, cents: 0 };
-    cur.cents += toCents(Number(amount));
-    shares.set(user.id, cur);
-  };
-  e.splits.forEach((s) => addShare(s.user, s.amount));
-  e.items.forEach((i) => i.splits.forEach((s) => addShare(s.user, s.amount)));
-
-  const paidCents = e.payers
-    .filter((p) => p.userId === userId)
-    .reduce((sum, p) => sum + toCents(Number(p.amountPaid)), 0);
-  const shareCents = shares.get(userId)?.cents ?? 0;
-  const isPayer = e.payers.some((p) => p.userId === userId);
-
-  return {
-    id: e.id,
-    description: e.description,
-    amount: Number(e.amount),
-    category: e.category,
-    date: e.date,
-    notes: e.notes,
-    groupId: e.groupId,
-    group: e.group,
-    isItemized: e.items.length > 0,
-    payers: e.payers.map((p) => ({ userId: p.userId, user: p.user, amount: Number(p.amountPaid) })),
-    splits: [...shares.values()].map((s) => ({ userId: s.user.id, user: s.user, amount: s.cents / 100 })),
-    items: e.items.map((i) => ({
-      id: i.id,
-      name: i.name,
-      amount: Number(i.amount),
-      splits: i.splits.map((s) => ({ userId: s.userId, user: s.user, amount: Number(s.amount) })),
-    })),
-    my: { paid: paidCents / 100, share: shareCents / 100, net: (paidCents - shareCents) / 100 },
-    canEdit: isPayer || (e.groupId ? adminGroups.has(e.groupId) : false),
-  };
 }

@@ -79,3 +79,38 @@ export async function isActiveMember(groupId: string, userId: string) {
   });
   return m;
 }
+
+
+export interface PaymentRecord {
+  id: string;
+  amount: number;
+  method: string;
+  description: string | null;
+  createdAt: string;
+  createdBy: string | null;
+  from: { id: string; name: string };
+  to: { id: string; name: string };
+}
+
+/** Confirmed payments in a group, newest first. */
+export async function loadPaymentHistory(groupId: string, take = 50): Promise<PaymentRecord[]> {
+  const history = await prisma.settlement.findMany({
+    where: { groupId, status: "CONFIRMED" },
+    orderBy: { createdAt: "desc" },
+    take,
+    include: {
+      payer: { select: { id: true, name: true, email: true, displayName: true } },
+      payee: { select: { id: true, name: true, email: true, displayName: true } },
+    },
+  });
+  return history.map((s) => ({
+    id: s.id,
+    amount: Number(s.amount),
+    method: s.method,
+    description: s.description,
+    createdAt: s.createdAt.toISOString(),
+    createdBy: s.createdBy,
+    from: { id: s.payer.id, name: s.payer.name || s.payer.displayName || s.payer.email },
+    to: { id: s.payee.id, name: s.payee.name || s.payee.displayName || s.payee.email },
+  }));
+}

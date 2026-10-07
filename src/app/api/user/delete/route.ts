@@ -1,74 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { loadUserOverview } from "@/lib/overview";
 
+// DELETE /api/user/delete - Delete the signed-in account.
+//
+// Expenses and payments are shared records: other people's balances depend on
+// them, so the rows stay and the person is anonymised instead ("Deleted
+// user"). Everything personal is removed: name, email, password, passkeys,
+// OAuth links, sessions and preferences. Refused while the user still owes or
+// is owed money in a group, so nobody's balance silently loses its owner.
 export async function DELETE(request: NextRequest) {
   try {
     const session = await auth();
-
-    if (!session || !session.user?.id) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const userId = session.user.id;
 
-    const { confirmationText } = await request.json();
-
-    // Require explicit confirmation
+    const { confirmationText } = await request.json().catch(() => ({}));
     if (confirmationText !== "DELETE MY ACCOUNT") {
       return NextResponse.json(
-        {
-          error:
-            "Invalid confirmation text. Please type 'DELETE MY ACCOUNT' exactly.",
-        },
+        { error: "Invalid confirmation text. Please type 'DELETE MY ACCOUNT' exactly." },
         { status: 400 }
       );
     }
 
-    // In a real application, this would:
-    // 1. Delete all related data (expenses, groups, authenticators, etc.)
-    // 2. Anonymize or backup necessary data for compliance
-    // 3. Send confirmation email
-    // 4. Log the action for audit purposes
+    const { groups } = await loadUserOverview(userId);
+    const open = groups.filter((g) => g.myStatus === "ACTIVE" && Math.round(g.net * 100) !== 0);
+    if (open.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Settle up first: you still have open balances in ${open.map((g) => g.name).join(", ")}.`,
+          openGroups: open.map((g) => ({ id: g.id, name: g.name })),
+        },
+        { status: 409 }
+      );
+    }
 
-    // For now, we'll just return a success message without actually deleting
-    return NextResponse.json({
-      message: "Account deletion request received",
-      status: "pending",
-      note: "Account deletion is currently disabled in development mode",
-    });
-
-    // Uncomment this for actual deletion:
-    /*
     await prisma.$transaction(async (tx) => {
-      // Delete authenticators
-      await tx.authenticator.deleteMany({
-        where: { userId: session.user.id }
+      await tx.authenticator.deleteMany({ where: { userId } });
+      await tx.session.deleteMany({ where: { userId } });
+      await tx.account.deleteMany({ where: { userId } });
+      await tx.userPreferences.deleteMany({ where: { userId } });
+      await tx.userNotificationSetting.deleteMany({ where: { userId } });
+      await tx.groupMember.updateMany({
+        where: { userId, status: { in: ["ACTIVE", "INVITED"] } },
+        data: { status: "LEFT", leftAt: new Date(), inviteToken: null },
       });
-
-      // Delete user sessions
-      await tx.session.deleteMany({
-        where: { userId: session.user.id }
-      });
-
-      // Delete user accounts
-      await tx.account.deleteMany({
-        where: { userId: session.user.id }
-      });
-
-      // Delete the user
-      await tx.user.delete({
-        where: { id: session.user.id }
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          name: null,
+          displayName: "Deleted user",
+          email: `deleted-${userId}@deleted.invalid`,
+          image: null,
+          password: null,
+          emailVerified: null,
+          signupToken: null,
+          status: "INACTIVE",
+        },
       });
     });
 
-    return NextResponse.json({
-      message: "Account successfully deleted",
-      redirectUrl: "/",
-    });
-    */
+    return NextResponse.json({ message: "Your account has been deleted.", redirectUrl: "/" });
   } catch (error) {
     console.error("Account deletion error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

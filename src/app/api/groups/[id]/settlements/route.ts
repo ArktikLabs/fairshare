@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { isActiveMember, loadGroupSettlements } from "@/lib/group-ledger";
+import { isActiveMember, loadGroupSettlements, loadPaymentHistory } from "@/lib/group-ledger";
 import { toCents } from "@/lib/money";
 
 // GET /api/groups/[id]/settlements - Balances, suggested payments and payment history
@@ -30,29 +30,8 @@ export async function GET(
       return NextResponse.json({ error: "Group not found" }, { status: 404 });
     }
 
-    const history = await prisma.settlement.findMany({
-      where: { groupId, status: "CONFIRMED" },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-      include: {
-        payer: { select: { id: true, name: true, email: true, displayName: true } },
-        payee: { select: { id: true, name: true, email: true, displayName: true } },
-      },
-    });
-
-    return NextResponse.json({
-      ...settlements,
-      history: history.map((s) => ({
-        id: s.id,
-        amount: Number(s.amount),
-        method: s.method,
-        description: s.description,
-        createdAt: s.createdAt,
-        createdBy: s.createdBy,
-        from: { id: s.payer.id, name: s.payer.name || s.payer.displayName || s.payer.email },
-        to: { id: s.payee.id, name: s.payee.name || s.payee.displayName || s.payee.email },
-      })),
-    });
+    const history = await loadPaymentHistory(groupId);
+    return NextResponse.json({ ...settlements, history });
   } catch (error) {
     console.error("Error calculating settlements:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -2,11 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { isSupportedCurrency, resolveCurrency } from "@/lib/currencies";
 
 const CreateGroupSchema = z.object({
-  name: z.string().min(1).max(100),
+  name: z.string().trim().min(1).max(100),
   description: z.string().max(500).optional(),
-  currency: z.string().length(3).default("USD"),
+  // Omitted -> the creator's preferred currency (fallback USD)
+  currency: z
+    .string()
+    .length(3)
+    .transform((c) => c.toUpperCase())
+    .refine(isSupportedCurrency, "Unknown currency code")
+    .optional(),
   imageUrl: z.string().url().optional(),
 });
 
@@ -20,6 +27,12 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = CreateGroupSchema.parse(body);
+    const currency =
+      validatedData.currency ??
+      resolveCurrency(
+        (await prisma.userPreferences.findUnique({ where: { userId: session.user.id }, select: { currency: true } }))
+          ?.currency
+      );
 
     const group = await prisma.$transaction(async (tx) => {
       // Create group
@@ -27,7 +40,7 @@ export async function POST(request: NextRequest) {
         data: {
           name: validatedData.name,
           description: validatedData.description,
-          currency: validatedData.currency,
+          currency,
           imageUrl: validatedData.imageUrl,
           createdBy: session.user.id,
         },

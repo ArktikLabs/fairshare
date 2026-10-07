@@ -185,6 +185,8 @@ export async function POST(
         ? appUrl(`/invite/${groupMember.inviteToken}`)
         : null;
 
+      const alreadyInvited = "alreadyInvited" in groupMember && groupMember.alreadyInvited === true;
+      // Re-inviting resends the same link (the token is kept)
       const emailSent = inviteLink
         ? await sendMail({
             to: groupMember.user.email,
@@ -194,7 +196,8 @@ export async function POST(
         : false;
 
       return NextResponse.json({
-        message: "User invited successfully",
+        message: alreadyInvited ? "Already invited: invitation extended" : "User invited successfully",
+        alreadyInvited,
         isInvitation: true,
         member: {
           id: groupMember.id,

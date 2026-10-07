@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { isSupportedCurrency } from "@/lib/currencies";
 
 const UpdateGroupSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).optional(),
-  currency: z.string().length(3).optional(),
+  currency: z.string().length(3).refine(isSupportedCurrency, "Unknown currency code").optional(),
   imageUrl: z.string().url().optional(),
 });
 

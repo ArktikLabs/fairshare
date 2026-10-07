@@ -67,7 +67,8 @@ export function useUserPreferences() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/user/preferences');
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const response = await fetch(`/api/user/preferences?tz=${encodeURIComponent(tz)}`);
       if (response.ok) {
         const data = await response.json();
         setPreferences(data);

@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { isValidTimezone } from "@/lib/localization-utils";
 
 const RegisterSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8, "Password must be at least 8 characters"),
   name: z.string().trim().max(100).optional(),
+  /** Browser time zone, used as the default preference. */
+  timezone: z.string().max(64).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -20,6 +23,7 @@ export async function POST(request: NextRequest) {
     }
     const email = parsed.data.email.trim().toLowerCase();
     const { password, name } = parsed.data;
+    const timezone = parsed.data.timezone && isValidTimezone(parsed.data.timezone) ? parsed.data.timezone : undefined;
 
     const existingUser = await prisma.user.findUnique({
       where: { email },
@@ -57,6 +61,14 @@ export async function POST(request: NextRequest) {
           },
           select,
         });
+
+    if (timezone) {
+      await prisma.userPreferences.upsert({
+        where: { userId: user.id },
+        update: {},
+        create: { userId: user.id, timezone },
+      });
+    }
 
     return NextResponse.json(
       {

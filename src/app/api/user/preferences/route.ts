@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { isSupportedCurrency } from "@/lib/currencies";
+import { isValidTimezone } from "@/lib/localization-utils";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await auth();
     
@@ -15,11 +17,14 @@ export async function GET() {
       where: { userId: session.user.id },
     });
 
-    // If no preferences exist, create default ones
+    // If no preferences exist, create default ones. The client passes the
+    // browser time zone (?tz=) so the default is local instead of UTC.
     if (!preferences) {
+      const tz = new URL(request.url).searchParams.get("tz");
       preferences = await prisma.userPreferences.create({
         data: {
           userId: session.user.id,
+          ...(tz && isValidTimezone(tz) ? { timezone: tz } : {}),
         },
       });
     }
@@ -98,20 +103,24 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Validate currency (basic ISO 4217 check)
-    if (currency && !/^[A-Z]{3}$/.test(currency)) {
+    // Validate currency against the shared ISO list
+    if (currency && !isSupportedCurrency(currency)) {
       return NextResponse.json(
         { error: "Invalid currency code. Use ISO 4217 format (e.g., USD, EUR)" },
         { status: 400 }
       );
     }
 
-    // Validate language (basic ISO 639-1 check)
-    if (language && !/^[a-z]{2}(-[a-z]{2})?$/i.test(language)) {
+    // English only for now; the column is kept for later
+    if (language && language !== "en") {
       return NextResponse.json(
-        { error: "Invalid language code. Use ISO 639-1 format (e.g., en, es, fr)" },
+        { error: "Only English is available" },
         { status: 400 }
       );
+    }
+
+    if (timezone !== undefined && (typeof timezone !== "string" || !isValidTimezone(timezone))) {
+      return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
     }
 
     // Update user preferences
