@@ -246,7 +246,7 @@ export function GroupSettingsForm({
       </Card>
 
       <Card>
-        <CardHeader title="Leave, archive or delete" />
+        <CardHeader title={isOwner ? "Leave, archive or delete" : isAdmin ? "Leave or archive" : "Leave the group"} />
         <ul className="divide-y divide-slate-100">
           <li className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
             <div className="min-w-0 flex-1 basis-56">
@@ -277,6 +277,7 @@ export function GroupSettingsForm({
               </Button>
             </li>
           )}
+          {isOwner && (
           <li className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
             <div className="min-w-0 flex-1 basis-56">
               <p className="text-sm font-medium text-rose-700">Delete group</p>
@@ -297,6 +298,7 @@ export function GroupSettingsForm({
               <Trash2 /> Delete
             </Button>
           </li>
+          )}
         </ul>
         {dangerError && !deleting && (
           <div className="px-4 pb-3 sm:px-5">

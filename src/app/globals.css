@@ -68,3 +68,12 @@ input:-webkit-autofill {
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+/* Visible keyboard focus for everything interactive that has no ring of its
+   own (list-row links, plain text buttons). Zero specificity, so components
+   with their own focus-visible ring keep it. */
+:where(a[href], button, summary, [role="button"], [role="tab"], [role="radio"], [role="switch"], [role="menuitem"], [role="option"], input[type="checkbox"], input[type="radio"]):focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+  border-radius: 0.375rem;
+}

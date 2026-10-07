@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
+// GET /api/auth/reset-password?token= -> { valid } so the page can say "link
+// expired" before the user types a new password. Reveals nothing else.
+export async function GET(request: NextRequest) {
+  const token = request.nextUrl.searchParams.get("token");
+  if (!token) return NextResponse.json({ valid: false });
+  const row = await prisma.passwordResetToken.findUnique({ where: { token }, select: { expires: true } });
+  return NextResponse.json({ valid: Boolean(row && row.expires > new Date()) });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { token, password } = await request.json();

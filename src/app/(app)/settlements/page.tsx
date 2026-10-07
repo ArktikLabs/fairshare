@@ -68,8 +68,9 @@ export default async function SettlementsPage() {
                 ))}
                 {g.owed.map((s) => (
                   <li key={s.fromUserId} className="flex items-center justify-between gap-3 px-4 py-3 text-sm sm:px-5">
-                    <span className="min-w-0 truncate">
-                      <span className="font-medium">{s.fromUserName}</span> pays you
+                    <span className="flex min-w-0 gap-1">
+                      <span className="truncate font-medium">{s.fromUserName}</span>
+                      <span className="shrink-0">pays you</span>
                     </span>
                     <span className="tabular font-semibold text-emerald-700">{formatCurrency(s.amount, g.currency)}</span>
                   </li>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ChevronLeft, Pencil } from "lucide-react";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 import { loadExpenseDetail } from "@/lib/expense-detail";
 import { historyLabel } from "@/lib/activity-format";
 import { categoryLabel } from "@/lib/categories";
@@ -43,8 +44,13 @@ export default async function ExpenseDetailPage({
   const session = await auth();
   if (!session?.user?.id) redirect(`/auth/signin?callbackUrl=/expenses/${id}`);
   const userId = session.user.id;
-  const d = await loadExpenseDetail(id, userId);
+  const [d, prefs] = await Promise.all([
+    loadExpenseDetail(id, userId),
+    prisma.userPreferences.findUnique({ where: { userId }, select: { timezone: true } }),
+  ]);
   if (!d) notFound();
+  const tz = prefs?.timezone || "UTC";
+  const when = (x: Date | string) => formatDateTime(x, tz);
 
   const cur = d.currency;
   const fmt = (c: number) => formatCurrency(c / 100, cur);
@@ -99,7 +105,7 @@ export default async function ExpenseDetailPage({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span>
               Deleted{d.deleted.by ? ` by ${d.deleted.by.id === userId ? "you" : d.deleted.by.name}` : ""}
-              {d.deleted.at ? ` on ${formatDateTime(d.deleted.at)}` : ""}. It no longer counts towards balances.
+              {d.deleted.at ? ` on ${when(d.deleted.at)}` : ""}. It no longer counts towards balances.
               {!d.deleted.restorable && " It can no longer be restored."}
             </span>
             {d.deleted.restorable && (
@@ -181,9 +187,9 @@ export default async function ExpenseDetailPage({
                           {d.splitMethod === "PERCENTAGE" && s.percentage !== null ? `${s.percentage}% · ` : ""}
                           {d.splitMethod === "SHARES" && s.shares !== null ? `${s.shares} ${s.shares === 1 ? "share" : "shares"} · ` : ""}
                           {net > 0 ? (
-                            <span className="text-emerald-700">gets back {fmt(net)}</span>
+                            <span className="text-emerald-700">lent {fmt(net)}</span>
                           ) : net < 0 ? (
-                            <span className="text-rose-600">owes {fmt(-net)}</span>
+                            <span className="text-rose-600">borrowed {fmt(-net)}</span>
                           ) : (
                             "even"
                           )}
@@ -223,7 +229,7 @@ export default async function ExpenseDetailPage({
 
           <CommentsCard
             expenseId={d.id}
-            comments={d.comments.map((c) => ({ ...c, when: formatDateTime(c.createdAt) }))}
+            comments={d.comments.map((c) => ({ ...c, when: when(c.createdAt) }))}
             currentUserId={userId}
             canComment={!d.archived && !d.deleted}
           />
@@ -253,11 +259,11 @@ export default async function ExpenseDetailPage({
               )}
               <Row label="Added">
                 {d.createdBy ? `${you(d.createdBy)}, ` : ""}
-                {formatDateTime(d.createdAt)}
+                {when(d.createdAt)}
               </Row>
               {d.updatedBy && d.updatedAt !== d.createdAt && (
                 <Row label="Last edited">
-                  {you(d.updatedBy)}, {formatDateTime(d.updatedAt)}
+                  {you(d.updatedBy)}, {when(d.updatedAt)}
                 </Row>
               )}
             </dl>
@@ -286,14 +292,14 @@ export default async function ExpenseDetailPage({
             <CardHeader title="History" description={d.history.length ? undefined : "Changes are tracked from now on"} />
             {d.history.length === 0 ? (
               <p className="px-4 py-3 text-sm text-slate-500 sm:px-5">
-                Added {formatDateTime(d.createdAt)}. No changes recorded yet.
+                Added {when(d.createdAt)}. No changes recorded yet.
               </p>
             ) : (
               <ol className="divide-y divide-slate-100">
                 {d.history.map((h) => (
                   <li key={h.id} className="px-4 py-2.5 text-sm sm:px-5">
                     <p className="break-words text-slate-800">{historyLabel(h, userId)}</p>
-                    <p className="text-xs text-slate-500">{formatDateTime(h.createdAt)}</p>
+                    <p className="text-xs text-slate-500">{when(h.createdAt)}</p>
                   </li>
                 ))}
               </ol>

@@ -18,8 +18,20 @@ function ResetPasswordContent() {
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
 
+  // null = checking, then true/false
+  const [valid, setValid] = useState<boolean | null>(null);
+
   useEffect(() => {
-    if (token) window.history.replaceState(null, "", window.location.pathname);
+    if (!token) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    let live = true;
+    fetch(`/api/auth/reset-password?token=${encodeURIComponent(token)}`)
+      .then((r) => r.json())
+      .then((j: { valid?: boolean }) => live && setValid(Boolean(j.valid)))
+      .catch(() => live && setValid(true)); // network trouble: let the submit report it
+    return () => {
+      live = false;
+    };
   }, [token]);
 
   const pwErr = password && password.length < 8 ? "At least 8 characters" : "";
@@ -49,9 +61,9 @@ function ResetPasswordContent() {
     }
   };
 
-  if (!token) {
+  if (!token || valid === false) {
     return (
-      <AuthCard title="Link not valid" subtitle="This reset link is missing its code or has already been used.">
+      <AuthCard title="Link not valid" subtitle="This reset link has expired, was already used, or is incomplete.">
         <ButtonLink href="/auth/forgot-password" className="w-full">
           Request a new link
         </ButtonLink>

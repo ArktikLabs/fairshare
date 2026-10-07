@@ -198,8 +198,9 @@ export default async function DashboardPage() {
                           className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"
                         >
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm text-slate-900">
-                              <span className="font-medium">{s.fromUserName}</span> pays you
+                            <p className="flex min-w-0 gap-1 text-sm text-slate-900">
+                              <span className="truncate font-medium">{s.fromUserName}</span>
+                              <span className="shrink-0">pays you</span>
                             </p>
                             <p className="truncate text-xs text-slate-500">{s.groupName}</p>
                           </div>

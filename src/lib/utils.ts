@@ -29,25 +29,34 @@ export function formatCurrency(amount: number, currency: string = 'USD'): string
  */
 export function formatDate(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
+  // Calendar dates (expense dates, recurrence dates) are stored as UTC
+  // midnight: read them in UTC so a browser west of UTC does not show the
+  // previous day. Real timestamps use the viewer's zone.
+  const calendar = d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0;
   return d.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    ...(calendar ? { timeZone: 'UTC' } : {}),
   });
 }
 
 /**
  * Format date and time for display
  */
-export function formatDateTime(date: Date | string): string {
+export function formatDateTime(date: Date | string, timeZone?: string | null): string {
   const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const opts: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+  // Server-rendered timestamps: pass the viewer's saved time zone, otherwise
+  // they come out in the server's zone.
+  if (timeZone) {
+    try {
+      return d.toLocaleString('en-US', { ...opts, timeZone });
+    } catch {
+      /* unknown zone: fall through */
+    }
+  }
+  return d.toLocaleString('en-US', opts);
 }
 
 /**

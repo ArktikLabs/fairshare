@@ -188,16 +188,16 @@ describe("activity lines", () => {
     payload: { actorName: "Ani", groupName: "Bali trip", currency: "USD", description: "Dinner", amount: 7500, impact: { ani: 5000, me: -2500, c: -2500 } },
     ...over,
   });
-  it("tells the reader what they owe", () => {
+  it("tells the reader what they borrowed", () => {
     const l = describeActivity(a({}), "me");
     expect(l.text).toBe('Ani added "Dinner" in Bali trip');
-    expect(l.detail).toEqual({ text: "you owe $25.00", tone: "negative" });
+    expect(l.detail).toEqual({ text: "you borrowed $25.00", tone: "negative" });
     expect(l.href).toBe("/expenses/e");
   });
   it("uses 'You' for the actor and hides the group on group pages", () => {
     const l = describeActivity(a({}), "ani", { showGroup: false });
     expect(l.text).toBe('You added "Dinner"');
-    expect(l.detail?.text).toBe("you get back $50.00");
+    expect(l.detail?.text).toBe("you lent $50.00");
   });
   it("lists edit changes", () => {
     const l = describeActivity(

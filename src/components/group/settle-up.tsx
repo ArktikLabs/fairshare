@@ -173,11 +173,11 @@ export function SettleUpCard({
             return (
               <li key={`${s.fromUserId}-${s.toUserId}`} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-5">
                 <div className="flex min-w-0 flex-1 basis-40 items-center gap-1.5 text-sm">
-                  <span className={cn("min-w-0 truncate", iPay ? "font-semibold text-slate-900" : "font-medium text-slate-800")}>
+                  <span className={cn(iPay ? "shrink-0 font-semibold text-slate-900" : "min-w-0 truncate font-medium text-slate-800")}>
                     {nameOf(s.fromUserId, s.fromUserName)}
                   </span>
                   <ArrowRight className="size-3.5 shrink-0 text-slate-400" aria-label="pays" />
-                  <span className={cn("min-w-0 truncate", iGet ? "font-semibold text-slate-900" : "font-medium text-slate-800")}>
+                  <span className={cn(iGet ? "shrink-0 font-semibold text-slate-900" : "min-w-0 truncate font-medium text-slate-800")}>
                     {iGet ? "you" : s.toUserName}
                   </span>
                 </div>

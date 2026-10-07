@@ -97,17 +97,12 @@ export function MembersCard({
       const link: string | null = body.member?.inviteLink ?? null;
       let copied = false;
       if (link) copied = (await copyOrShare(link, `Join ${groupName} on FairShare`)) !== "failed";
-      const what = body.alreadyInvited ? `${addr} was already invited.` : `${addr} invited.`;
-      const how = body.emailSent
-        ? body.alreadyInvited
-          ? " Invitation email resent"
-          : " Invitation emailed"
-        : "";
-      const linkPart = link ? (copied ? `${how ? " and" : ""} link copied.` : how ? "." : "") : how ? "." : "";
-      setNotice({
-        text: `${what}${how}${linkPart} They can be added to expenses right away.`,
-        link: copied ? null : link,
-      });
+      // One short sentence per fact, e.g. "a@b.com invited. Invite link copied."
+      const parts = [body.alreadyInvited ? `${addr} was already invited, the same link still works.` : `${addr} invited.`];
+      if (body.emailSent) parts.push(body.alreadyInvited ? "Invitation email sent again." : "Invitation emailed.");
+      if (link) parts.push(copied ? "Invite link copied." : "Share this invite link:");
+      if (!body.alreadyInvited) parts.push("You can add them to expenses right away.");
+      setNotice({ text: parts.join(" "), link: copied ? null : link });
       setEmail("");
       setInviting(false);
       router.refresh();

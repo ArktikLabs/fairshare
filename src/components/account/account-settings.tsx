@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { Download, KeyRound, LogOut, Trash2 } from "lucide-react";
@@ -23,6 +23,8 @@ function timeZones(): string[] {
   }
   return ["UTC"];
 }
+
+const noopSubscribe = () => () => {};
 
 type Status = { tone: "success" | "error"; text: string } | null;
 
@@ -66,23 +68,31 @@ export function AccountSettings({
   };
 
   // ----- preferences -----
+  // Browser-only values: the server's ICU zone list and zone differ from the
+  // browser's, so render them after hydration only (avoids React #418).
+  const mounted = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false
+  );
   const browserTz = useMemo(() => {
+    if (!mounted) return "UTC";
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     } catch {
       return "UTC";
     }
-  }, []);
+  }, [mounted]);
   const [currency, setCurrency] = useState(resolveCurrency(preferences?.currency));
   // No stored preference yet (or still the old UTC default): use the browser zone
-  const [timezone, setTimezone] = useState(
-    preferences?.timezone && preferences.timezone !== "UTC" ? preferences.timezone : browserTz
-  );
+  const stored = preferences?.timezone && preferences.timezone !== "UTC" ? preferences.timezone : null;
+  const [picked, setTimezone] = useState<string | null>(null);
+  const timezone = picked ?? stored ?? browserTz;
   const [prefStatus, setPrefStatus] = useState<Status>(null);
   const zones = useMemo(() => {
-    const z = timeZones();
+    const z = mounted ? timeZones() : [];
     return z.includes(timezone) ? z : [timezone, ...z];
-  }, [timezone]);
+  }, [timezone, mounted]);
 
   const savePref = async (patch: { currency?: string; timezone?: string }) => {
     setPrefStatus(null);
@@ -101,11 +111,9 @@ export function AccountSettings({
 
   // Persist the browser time zone once if nothing better was stored
   useEffect(() => {
-    if (!preferences || preferences.timezone === "UTC") {
-      if (browserTz !== "UTC") void savePref({ timezone: browserTz }).then(() => setPrefStatus(null));
-    }
+    if (!stored && browserTz !== "UTC") void savePref({ timezone: browserTz }).then(() => setPrefStatus(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [browserTz]);
 
   // ----- password -----
   const [pwOpen, setPwOpen] = useState(false);

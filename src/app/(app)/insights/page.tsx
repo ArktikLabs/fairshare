@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ChartPie } from "lucide-react";
 import { auth } from "@/auth";
@@ -77,9 +76,10 @@ export default async function InsightsPage({ searchParams }: { searchParams: SP 
       )}
       <p className="mt-6 text-xs text-slate-500">
         Amounts in different currencies are kept apart. Need the raw data?{" "}
-        <Link href="/api/expenses/export.csv" className="text-brand-700 hover:underline">
+        {/* Plain <a>: next/link would prefetch the CSV route as a page */}
+        <a href="/api/expenses/export.csv" download className="text-brand-700 hover:underline">
           Download all your expenses as CSV
-        </Link>
+        </a>
         .
       </p>
     </>

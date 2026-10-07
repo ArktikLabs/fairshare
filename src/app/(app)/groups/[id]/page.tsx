@@ -125,6 +125,7 @@ export default async function GroupDetailPage({ params }: Props) {
           <>
             {group.description ? <>{group.description} · </> : null}
             {group.currency} · {activeCount} {activeCount === 1 ? "member" : "members"}
+            {members.length > activeCount ? ` · ${members.length - activeCount} invited` : null}
           </>
         }
         actions={
@@ -154,6 +155,7 @@ export default async function GroupDetailPage({ params }: Props) {
         </Alert>
       )}
 
+      {(expenseCount > 0 || history.length > 0) && (
       <div
         className={
           "mb-5 flex flex-wrap items-baseline justify-between gap-2 rounded-xl border px-4 py-3 sm:px-5 " +
@@ -169,6 +171,7 @@ export default async function GroupDetailPage({ params }: Props) {
         </p>
         {myCents !== 0 && <Money amount={myNet} currency={group.currency} absolute className="text-xl font-semibold" />}
       </div>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-5">
         <div className="min-w-0 space-y-5 lg:col-span-3">

@@ -153,10 +153,12 @@ export function describeActivity(
     if (mine === 0) return viewerId in p.impact ? { text: "you are even on this", tone: "neutral" } : null;
     if (verbPast) {
       return mine > 0
-        ? { text: `you are no longer owed ${money(mine)}`, tone: "neutral" }
-        : { text: `you no longer owe ${money(mine)}`, tone: "neutral" };
+        ? { text: `no longer counts: you lent ${money(mine)}`, tone: "neutral" }
+        : { text: `no longer counts: you borrowed ${money(mine)}`, tone: "neutral" };
     }
-    return mine > 0 ? { text: `you get back ${money(mine)}`, tone: "positive" } : { text: `you owe ${money(mine)}`, tone: "negative" };
+    // Same words as expense rows: an expense makes you lend or borrow; "owe /
+    // are owed" is kept for running balances.
+    return mine > 0 ? { text: `you lent ${money(mine)}`, tone: "positive" } : { text: `you borrowed ${money(mine)}`, tone: "negative" };
   };
 
   switch (a.type) {
