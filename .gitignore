@@ -45,3 +45,5 @@ next-env.d.ts
 
 # receipt uploads
 /uploads
+
+__pycache__/
