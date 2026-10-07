@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isActiveMember, loadGroupSettlements, loadPaymentHistory } from "@/lib/group-ledger";
 import { toCents } from "@/lib/money";
+import { recordActivity, userNames } from "@/lib/activity";
 
 // GET /api/groups/[id]/settlements - Balances, suggested payments and payment history
 export async function GET(
@@ -30,7 +31,12 @@ export async function GET(
       return NextResponse.json({ error: "Group not found" }, { status: 404 });
     }
 
-    const history = await loadPaymentHistory(groupId);
+    const me = await isActiveMember(groupId, session.user.id);
+    const history = await loadPaymentHistory(groupId, 50, {
+      viewerId: session.user.id,
+      isAdmin: me?.role === "ADMIN" || me?.role === "OWNER",
+      archived: Boolean(me?.archived),
+    });
     return NextResponse.json({ ...settlements, history });
   } catch (error) {
     console.error("Error calculating settlements:", error);
@@ -70,6 +76,13 @@ export async function POST(
       );
     }
 
+    if (me.archived) {
+      return NextResponse.json(
+        { error: "This group is archived. Unarchive it in group settings to make changes." },
+        { status: 409 }
+      );
+    }
+
     const parsed = RecordPaymentSchema.safeParse(await request.json());
     if (!parsed.success) {
       return NextResponse.json(
@@ -104,18 +117,38 @@ export async function POST(
       );
     }
 
-    const settlement = await prisma.settlement.create({
-      data: {
-        groupId,
-        payerId: fromUserId,
-        payeeId: toUserId,
-        amount: toCents(amount) / 100,
-        method,
-        description,
-        status: "CONFIRMED",
-        confirmedAt: new Date(),
-        createdBy: session.user.id,
-      },
+    const names = await userNames([fromUserId, toUserId]);
+    const settlement = await prisma.$transaction(async (tx) => {
+      const s = await tx.settlement.create({
+        data: {
+          groupId,
+          payerId: fromUserId,
+          payeeId: toUserId,
+          amount: toCents(amount) / 100,
+          method,
+          description,
+          status: "CONFIRMED",
+          confirmedAt: new Date(),
+          createdBy: session.user.id,
+        },
+      });
+      await recordActivity(
+        {
+          type: "PAYMENT_RECORDED",
+          actorId: session.user.id,
+          groupId,
+          settlementId: s.id,
+          payload: {
+            amount: toCents(amount),
+            fromId: fromUserId,
+            fromName: names.get(fromUserId),
+            toId: toUserId,
+            toName: names.get(toUserId),
+          },
+        },
+        tx
+      );
+      return s;
     });
 
     return NextResponse.json(

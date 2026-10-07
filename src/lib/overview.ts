@@ -19,6 +19,8 @@ export interface GroupPosition {
   name: string;
   currency: string;
   myStatus: "ACTIVE" | "INVITED";
+  /** Archived groups are read-only and listed separately */
+  archived: boolean;
   memberCount: number;
   invitedCount: number;
   expenseCount: number;
@@ -51,6 +53,7 @@ export async function loadUserOverview(userId: string): Promise<UserOverview> {
           id: true,
           name: true,
           currency: true,
+          archivedAt: true,
           members: { where: { status: { in: ["ACTIVE", "INVITED"] } }, select: { status: true } },
           _count: { select: { expenses: { where: { isDeleted: false } } } },
         },
@@ -69,6 +72,7 @@ export async function loadUserOverview(userId: string): Promise<UserOverview> {
       name: g.name,
       currency: g.currency,
       myStatus: m.status as "ACTIVE" | "INVITED",
+      archived: Boolean(g.archivedAt),
       memberCount: g.members.filter((x) => x.status === "ACTIVE").length,
       invitedCount: g.members.filter((x) => x.status === "INVITED").length,
       expenseCount: g._count.expenses,

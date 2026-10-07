@@ -31,6 +31,7 @@ export interface GroupSettlements {
   balances: UserBalance[];
   suggestedSettlements: Settlement[];
   totalTransactions: number;
+  simplify?: boolean;
 }
 
 export interface BalanceUser {
@@ -155,7 +156,81 @@ export function optimizeSettlements(balances: UserBalance[], currency: string = 
 }
 
 /**
- * Calculate complete group settlement information
+ * Plain pairwise debts ("simplify debts" off): who owes whom, directly, from
+ * the expenses they shared, minus payments between the two of them. Each
+ * expense is resolved on its own: the people who came out behind on it owe
+ * the people who came out ahead (filled in order, in cents, so every
+ * expense's debts add up exactly). Debts between the same two people are
+ * then netted, so each pair has at most one suggestion.
+ *
+ * Every person's suggestions add up to their ledger balance, the same as the
+ * simplified suggestions; there are just usually more of them.
+ */
+export function pairwiseSettlements(
+  balances: UserBalance[],
+  expenses: BalanceExpense[],
+  payments: RecordedPayment[] = [],
+  currency: string = "USD"
+): Settlement[] {
+  const owed = new Map<string, number>(); // "from|to" -> cents from owes to
+  const add = (from: string, to: string, cents: number) => {
+    if (from === to || cents === 0) return;
+    const k = `${from}|${to}`;
+    owed.set(k, (owed.get(k) ?? 0) + cents);
+  };
+
+  for (const e of expenses) {
+    const net = new Map<string, number>();
+    const bump = (id: string, c: number) => net.set(id, (net.get(id) ?? 0) + c);
+    e.payers.forEach((p) => bump(p.userId, toCents(Number(p.amountPaid))));
+    e.splits.forEach((s) => bump(s.userId, -toCents(Number(s.amount))));
+    (e.items ?? []).forEach((i) => i.splits.forEach((s) => bump(s.userId, -toCents(Number(s.amount)))));
+    const ahead = [...net].filter(([, c]) => c > 0).sort((a, b) => a[0].localeCompare(b[0])).map(([id, c]) => ({ id, c }));
+    const behind = [...net].filter(([, c]) => c < 0).sort((a, b) => a[0].localeCompare(b[0])).map(([id, c]) => ({ id, c: -c }));
+    let i = 0;
+    let j = 0;
+    while (i < ahead.length && j < behind.length) {
+      const amt = Math.min(ahead[i].c, behind[j].c);
+      add(behind[j].id, ahead[i].id, amt);
+      ahead[i].c -= amt;
+      behind[j].c -= amt;
+      if (ahead[i].c === 0) i++;
+      if (behind[j].c === 0) j++;
+    }
+  }
+  // A payment from P to Q cancels what P owed Q
+  for (const p of payments) add(p.payeeId, p.payerId, toCents(Number(p.amount)));
+
+  const names = new Map(balances.map((b) => [b.userId, b.name]));
+  const pairs = new Map<string, { a: string; b: string; cents: number }>(); // cents > 0: a owes b
+  for (const [k, cents] of owed) {
+    const [from, to] = k.split("|");
+    const [a, b] = from < to ? [from, to] : [to, from];
+    const key = `${a}|${b}`;
+    const cur = pairs.get(key) ?? { a, b, cents: 0 };
+    cur.cents += from === a ? cents : -cents;
+    pairs.set(key, cur);
+  }
+  const out: Settlement[] = [];
+  for (const { a, b, cents } of pairs.values()) {
+    if (cents === 0) continue;
+    const [from, to] = cents > 0 ? [a, b] : [b, a];
+    out.push({
+      fromUserId: from,
+      fromUserName: names.get(from) ?? "Former member",
+      toUserId: to,
+      toUserName: names.get(to) ?? "Former member",
+      amount: fromCents(Math.abs(cents)),
+      currency,
+    });
+  }
+  return out.sort((x, y) => y.amount - x.amount || x.fromUserId.localeCompare(y.fromUserId) || x.toUserId.localeCompare(y.toUserId));
+}
+
+/**
+ * Calculate complete group settlement information. With `simplify` (the
+ * default) suggestions are the fewest payments that clear every balance;
+ * without it they are the plain pairwise debts.
  */
 export function calculateGroupSettlements(
   groupId: string,
@@ -163,10 +238,14 @@ export function calculateGroupSettlements(
   members: BalanceMember[],
   expenses: BalanceExpense[],
   payments: RecordedPayment[] = [],
-  extraUsers: BalanceUser[] = []
+  extraUsers: BalanceUser[] = [],
+  options: { simplify?: boolean } = {}
 ): GroupSettlements {
   const balances = calculateGroupBalances(members, expenses, payments, extraUsers);
-  const suggestedSettlements = optimizeSettlements(balances, currency);
+  const simplify = options.simplify ?? true;
+  const suggestedSettlements = simplify
+    ? optimizeSettlements(balances, currency)
+    : pairwiseSettlements(balances, expenses, payments, currency);
 
   return {
     groupId,
@@ -174,6 +253,7 @@ export function calculateGroupSettlements(
     balances,
     suggestedSettlements,
     totalTransactions: suggestedSettlements.length,
+    simplify,
   };
 }
 

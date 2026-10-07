@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { isSupportedCurrency, resolveCurrency } from "@/lib/currencies";
+import { recordActivity } from "@/lib/activity";
 
 const CreateGroupSchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -56,6 +57,7 @@ export async function POST(request: NextRequest) {
           joinedAt: new Date(),
         },
       });
+      await recordActivity({ type: "GROUP_CREATED", actorId: session.user.id, groupId: newGroup.id }, tx);
 
       return newGroup;
     });

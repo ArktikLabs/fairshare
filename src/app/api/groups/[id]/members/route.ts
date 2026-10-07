@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { inviteUserToGroup, getUserDisplayName, isGhostUser } from "@/lib/ghost-users";
 import { appUrl, sendMail } from "@/lib/mailer";
+import { recordActivity } from "@/lib/activity";
 
 const AddMemberSchema = z
   .object({
@@ -29,6 +30,9 @@ async function validateGroupAdminAccess(userId: string, groupId: string) {
   if (!member) {
     throw new Error("Access denied: Admin privileges required");
   }
+  const group = await prisma.group.findUnique({ where: { id: groupId }, select: { archivedAt: true, isActive: true } });
+  if (!group?.isActive) throw new Error("Access denied: Group not found");
+  if (group.archivedAt) throw new Error("This group is archived. Unarchive it in group settings to invite people.");
 
   return member;
 }
@@ -132,7 +136,7 @@ export async function POST(
           error:
             adminError instanceof Error ? adminError.message : "Access denied",
         },
-        { status: 403 }
+        { status: adminError instanceof Error && adminError.message.includes("archived") ? 409 : 403 }
       );
     }
 
@@ -186,6 +190,15 @@ export async function POST(
         : null;
 
       const alreadyInvited = "alreadyInvited" in groupMember && groupMember.alreadyInvited === true;
+      if (!alreadyInvited) {
+        await recordActivity({
+          type: "MEMBER_INVITED",
+          actorId: session.user.id,
+          groupId,
+          targetUserId: groupMember.userId,
+          payload: { targetName: getUserDisplayName(groupMember.user) },
+        });
+      }
       // Re-inviting resends the same link (the token is kept)
       const emailSent = inviteLink
         ? await sendMail({

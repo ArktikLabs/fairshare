@@ -219,3 +219,71 @@ export function buildParticipants(
       };
   }
 }
+
+// ----- edit mode -----
+
+export interface StoredSplit {
+  userId: string;
+  /** cents */
+  amount: number;
+  percentage: number | null;
+  shares: number | null;
+}
+
+export interface StoredExpenseForForm {
+  description: string;
+  /** cents */
+  amount: number;
+  /** YYYY-MM-DD */
+  date: string;
+  category: string | null;
+  notes: string | null;
+  splitMethod: "EQUAL" | "EXACT" | "PERCENTAGE" | "SHARES";
+  payers: Array<{ userId: string; amount: number }>;
+  splits: StoredSplit[];
+  items: Array<{ name: string; amount: number; splitMethod: "EQUAL" | "EXACT" | "PERCENTAGE" | "SHARES"; splits: StoredSplit[] }>;
+}
+
+export interface SplitState {
+  mode: ItemSplitMode;
+  selected: string[];
+  values: Record<string, string>;
+}
+
+/** Input text for one stored split row in the given mode. */
+function valuesFor(mode: ItemSplitMode, splits: StoredSplit[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const s of splits) {
+    if (mode === "EXACT") out[s.userId] = centsToInput(s.amount);
+    else if (mode === "PERCENTAGE") out[s.userId] = s.percentage !== null ? String(Number(s.percentage)) : "";
+    else if (mode === "SHARES") out[s.userId] = s.shares !== null ? String(s.shares) : "1";
+  }
+  return out;
+}
+
+/**
+ * Editor state for a stored split. `order` is the member order of the form,
+ * so ticked people show in the same order as when adding. An EQUAL split
+ * whose stored amounts are not the equal allocation (e.g. edited data) falls
+ * back to EXACT so saving does not silently change anyone's share.
+ */
+export function splitStateFromStored(
+  method: ItemSplitMode,
+  totalCents: number,
+  splits: StoredSplit[],
+  order: string[]
+): SplitState {
+  const selected = order.filter((id) => splits.some((s) => s.userId === id));
+  // People on the expense who are not in the member list go last
+  splits.forEach((s) => !selected.includes(s.userId) && selected.push(s.userId));
+  const byId = new Map(splits.map((s) => [s.userId, s]));
+  const ordered = selected.map((id) => byId.get(id)!);
+  let mode: ItemSplitMode = method;
+  if (mode === "EQUAL") {
+    const even = allocateCents(totalCents, ordered.map(() => 1));
+    if (ordered.some((s, i) => s.amount !== even[i])) mode = "EXACT";
+  }
+  if (mode === "PERCENTAGE" && ordered.some((s) => s.percentage === null)) mode = "EXACT";
+  if (mode === "SHARES" && ordered.some((s) => s.shares === null)) mode = "EXACT";
+  return { mode, selected, values: valuesFor(mode, ordered) };
+}

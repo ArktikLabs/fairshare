@@ -35,6 +35,7 @@
     "prisma": "^6.14.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "sharp": "0.34.3",
     "tailwind-merge": "^3.7.0",
     "zod": "^4.1.4"
   },

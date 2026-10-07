@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { loadGroupSettlements } from "@/lib/group-ledger";
+import { recordActivity, userNames } from "@/lib/activity";
 
 const UpdateMemberSchema = z.object({
   role: z.enum(["ADMIN", "MEMBER"]),
@@ -61,10 +62,25 @@ export async function PATCH(
     if (member.userId === session.user.id) throw new HttpError(400, "Cannot change your own role");
     if (member.role === "OWNER") throw new HttpError(400, "The group owner's role cannot be changed");
 
-    const updatedMember = await prisma.groupMember.update({
-      where: { id: memberId },
-      data: { role },
-      include: { user: { select: { id: true, name: true, email: true } } },
+    const updatedMember = await prisma.$transaction(async (tx) => {
+      const u = await tx.groupMember.update({
+        where: { id: memberId },
+        data: { role },
+        include: { user: { select: { id: true, name: true, email: true, displayName: true } } },
+      });
+      if (member.role !== role) {
+        await recordActivity(
+          {
+            type: "MEMBER_ROLE_CHANGED",
+            actorId: session.user.id,
+            groupId,
+            targetUserId: u.userId,
+            payload: { targetName: u.user.name || u.user.displayName || u.user.email, role },
+          },
+          tx
+        );
+      }
+      return u;
     });
     return NextResponse.json(updatedMember);
   } catch (error) {
@@ -120,19 +136,44 @@ export async function DELETE(
         where: { groupId, status: "ACTIVE", role: { in: ["OWNER", "ADMIN"] } },
       });
       if (admins <= 1) {
-        throw new HttpError(400, "The last admin cannot leave. Make someone else admin first.");
+        throw new HttpError(
+          400,
+          isSelf
+            ? "You are the last admin. Make someone else admin first."
+            : "The last admin cannot be removed. Make someone else admin first."
+        );
       }
     }
 
     const ledger = await loadGroupSettlements(groupId);
     const balance = ledger?.balances.find((b) => b.userId === member.userId);
     if (balance && balance.netBalance !== 0) {
-      throw new HttpError(400, "Settle up first: this member still has an open balance in the group");
+      throw new HttpError(
+        400,
+        isSelf
+          ? "Settle up first: you still have an open balance in this group."
+          : "Settle up first: this member still has an open balance in the group"
+      );
     }
 
-    await prisma.groupMember.update({
-      where: { id: memberId },
-      data: { status: isSelf ? "LEFT" : "REMOVED", leftAt: new Date() },
+    const names = await userNames([member.userId]);
+    await prisma.$transaction(async (tx) => {
+      await tx.groupMember.update({
+        where: { id: memberId },
+        data: { status: isSelf ? "LEFT" : "REMOVED", leftAt: new Date() },
+      });
+      await recordActivity(
+        isSelf
+          ? { type: "MEMBER_LEFT", actorId: session.user.id, groupId }
+          : {
+              type: "MEMBER_REMOVED",
+              actorId: session.user.id,
+              groupId,
+              targetUserId: member.userId,
+              payload: { targetName: names.get(member.userId) },
+            },
+        tx
+      );
     });
     return NextResponse.json({ message: isSelf ? "You left the group" : "Member removed successfully" });
   } catch (error) {

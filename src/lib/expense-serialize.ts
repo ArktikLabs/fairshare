@@ -4,6 +4,7 @@
 
 import type { Prisma } from "@prisma/client";
 import { toCents } from "./money";
+import { canManageExpense } from "./permissions";
 
 const userSelect = { select: { id: true, name: true, email: true, displayName: true } } as const;
 
@@ -11,7 +12,8 @@ export const expenseListInclude = {
   payers: { include: { user: userSelect } },
   splits: { include: { user: userSelect } },
   items: { include: { splits: { include: { user: userSelect } } } },
-  group: { select: { id: true, name: true, currency: true } },
+  group: { select: { id: true, name: true, currency: true, archivedAt: true } },
+  _count: { select: { comments: true } },
 } satisfies Prisma.ExpenseInclude;
 
 export type ListedExpense = Prisma.ExpenseGetPayload<{ include: typeof expenseListInclude }>;
@@ -43,6 +45,8 @@ export interface SerializedExpense {
   }>;
   my: { paid: number; share: number; net: number };
   canEdit: boolean;
+  hasReceipt: boolean;
+  commentCount: number;
 }
 
 const plainUser = (u: ListedUser): ExpenseUser => ({
@@ -69,7 +73,6 @@ export function serializeExpense(
     .filter((p) => p.userId === userId)
     .reduce((sum, p) => sum + toCents(Number(p.amountPaid)), 0);
   const shareCents = shares.get(userId)?.cents ?? 0;
-  const isPayer = e.payers.some((p) => p.userId === userId);
 
   return {
     id: e.id,
@@ -79,7 +82,7 @@ export function serializeExpense(
     date: e.date.toISOString(),
     notes: e.notes,
     groupId: e.groupId,
-    group: e.group,
+    group: e.group ? { id: e.group.id, name: e.group.name, currency: e.group.currency } : null,
     isItemized: e.items.length > 0,
     payers: e.payers.map((p) => ({ userId: p.userId, user: plainUser(p.user), amount: Number(p.amountPaid) })),
     splits: [...shares.values()].map((s) => ({ userId: s.user.id, user: plainUser(s.user), amount: s.cents / 100 })),
@@ -90,7 +93,15 @@ export function serializeExpense(
       splits: i.splits.map((s) => ({ userId: s.userId, user: plainUser(s.user), amount: Number(s.amount) })),
     })),
     my: { paid: paidCents / 100, share: shareCents / 100, net: (paidCents - shareCents) / 100 },
-    canEdit: isPayer || (e.groupId ? adminGroups.has(e.groupId) : false),
+    canEdit: canManageExpense({
+      userId,
+      createdById: e.createdById,
+      payerIds: e.payers.map((p) => p.userId),
+      role: e.groupId && adminGroups.has(e.groupId) ? "ADMIN" : null,
+      archived: Boolean(e.group?.archivedAt),
+    }),
+    hasReceipt: Boolean(e.receiptKey),
+    commentCount: e._count.comments,
   };
 }
 

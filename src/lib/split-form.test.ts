@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  splitStateFromStored,
   buildParticipants,
   evenPayerValues,
   localDateString,
@@ -131,5 +132,43 @@ describe("currencies", () => {
     expect(searchCurrencies("idr")[0].code).toBe("IDR");
     expect(searchCurrencies("rupiah").map((c) => c.code)).toContain("IDR");
     expect(searchCurrencies("")[0].code).toBe("USD");
+  });
+});
+
+describe("splitStateFromStored (edit mode)", () => {
+  const sp = (userId: string, amount: number, extra: Partial<{ percentage: number; shares: number }> = {}) => ({
+    userId,
+    amount,
+    percentage: extra.percentage ?? null,
+    shares: extra.shares ?? null,
+  });
+
+  it("keeps an equal split equal, in member order", () => {
+    const s = splitStateFromStored("EQUAL", 10000, [sp("b", 3333), sp("a", 3334), sp("c", 3333)], ["a", "b", "c"]);
+    expect(s).toEqual({ mode: "EQUAL", selected: ["a", "b", "c"], values: {} });
+    const p = previewSplit(s.mode, 10000, s.selected.map((id) => ({ value: s.values[id] ?? "" })));
+    expect(p.cents).toEqual([3334, 3333, 3333]);
+  });
+
+  it("falls back to exact amounts when an EQUAL split is not even", () => {
+    const s = splitStateFromStored("EQUAL", 10000, [sp("a", 6000), sp("b", 4000)], ["a", "b"]);
+    expect(s.mode).toBe("EXACT");
+    expect(s.values).toEqual({ a: "60.00", b: "40.00" });
+  });
+
+  it("restores percentages and shares so the preview matches the stored cents", () => {
+    const pct = splitStateFromStored("PERCENTAGE", 12775, [sp("a", 6388, { percentage: 50 }), sp("b", 6387, { percentage: 50 })], ["a", "b"]);
+    expect(pct.values).toEqual({ a: "50", b: "50" });
+    const p = previewSplit(pct.mode, 12775, pct.selected.map((id) => ({ value: pct.values[id] })));
+    expect(p.balanced).toBe(true);
+    expect(p.cents).toEqual([6388, 6387]);
+    const sh = splitStateFromStored("SHARES", 300, [sp("a", 200, { shares: 2 }), sp("b", 100, { shares: 1 })], ["b", "a"]);
+    expect(sh.selected).toEqual(["b", "a"]);
+    expect(sh.values).toEqual({ a: "2", b: "1" });
+  });
+
+  it("keeps people who are no longer members", () => {
+    const s = splitStateFromStored("EQUAL", 200, [sp("gone", 100), sp("a", 100)], ["a"]);
+    expect(s.selected).toEqual(["a", "gone"]);
   });
 });

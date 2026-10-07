@@ -89,6 +89,11 @@ model User {
   expenseItemSplits ExpenseItemSplit[] @relation("ExpenseItemSplits")
   settlementsAsPayer Settlement[]     @relation("SettlementPayer")
   settlementsAsPayee Settlement[]     @relation("SettlementPayee")
+  expensesCreated   Expense[]         @relation("ExpenseCreator")
+  expensesUpdated   Expense[]         @relation("ExpenseUpdater")
+  activities        Activity[]        @relation("ActivityActor")
+  activityTargets   Activity[]        @relation("ActivityTarget")
+  expenseComments   ExpenseComment[]
 }
 
 model VerificationToken {
@@ -182,7 +187,12 @@ model Group {
 
   // Group settings
   currency    String   @default("USD")
-  isActive    Boolean  @default(true)
+  isActive    Boolean  @default(true) // false = deleted
+  // Off: settle-up suggestions are plain pairwise debts instead of the
+  // minimised payment graph.
+  simplifyDebts Boolean @default(true)
+  // Archived groups are read-only and listed separately
+  archivedAt  DateTime?
 
   // Audit fields
   createdAt   DateTime @default(now())
@@ -195,6 +205,7 @@ model Group {
   expenses    Expense[]
   settings    GroupSetting[]
   settlements Settlement[]
+  activities  Activity[]
 
   @@index([createdBy])
   @@index([isActive])
@@ -273,17 +284,27 @@ model Expense {
 
   // Receipt and notes
   notes       String?
-  receiptUrls String[] // Array of receipt image URLs
+  receiptUrls String[] // Legacy, unused
+  // Stored receipt image key (files under UPLOAD_DIR/receipts/), served
+  // only through the authenticated /api/expenses/[id]/receipt route
+  receiptKey  String?
 
   // Status tracking
   isSettled   Boolean  @default(false)
   isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?
+  deletedById String?
 
-  // Audit fields
+  // Audit fields (createdById / updatedById are null for older expenses)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  createdById String?
+  updatedById String?
 
   // Relations
+  createdByUser User?        @relation("ExpenseCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedByUser User?        @relation("ExpenseUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  comments    ExpenseComment[]
   group       Group?         @relation(fields: [groupId], references: [id])
   payers      ExpensePayer[] // Multiple payers support
   splits      ExpenseSplit[] // For simple expenses
@@ -455,9 +476,12 @@ model Settlement {
   // External reference (e.g., Venmo transaction ID)
   externalRef String?
 
-  // Status
+  // Status (CANCELLED = deleted by a user; can be restored)
   status      SettlementStatus @default(PENDING)
   confirmedAt DateTime?
+  deletedAt   DateTime?
+  deletedById String?
+  updatedById String?
 
   // Audit fields
   createdAt   DateTime @default(now())
@@ -491,4 +515,64 @@ enum SettlementStatus {
   CONFIRMED
   REJECTED
   CANCELLED
+}
+
+// Activity feed: one row per event, written by recordActivity() in
+// src/lib/activity.ts (the single hook point for notifications later).
+enum ActivityType {
+  EXPENSE_CREATED
+  EXPENSE_UPDATED
+  EXPENSE_DELETED
+  EXPENSE_RESTORED
+  PAYMENT_RECORDED
+  PAYMENT_UPDATED
+  PAYMENT_DELETED
+  PAYMENT_RESTORED
+  MEMBER_INVITED
+  MEMBER_JOINED
+  MEMBER_LEFT
+  MEMBER_REMOVED
+  MEMBER_ROLE_CHANGED
+  GROUP_CREATED
+  GROUP_RENAMED
+  GROUP_SETTINGS_CHANGED
+  GROUP_ARCHIVED
+  GROUP_UNARCHIVED
+  COMMENT_ADDED
+}
+
+model Activity {
+  id           String       @id @default(cuid())
+  groupId      String?
+  actorId      String
+  type         ActivityType
+  expenseId    String?
+  settlementId String?
+  commentId    String?
+  targetUserId String?
+  // Human-readable summary: names, amounts, before/after for edits
+  payload      Json         @default("{}")
+  createdAt    DateTime     @default(now())
+
+  group      Group? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  actor      User   @relation("ActivityActor", fields: [actorId], references: [id], onDelete: Cascade)
+  targetUser User?  @relation("ActivityTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([groupId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([expenseId])
+  @@index([settlementId])
+}
+
+model ExpenseComment {
+  id        String   @id @default(cuid())
+  expenseId String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  author  User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId, createdAt])
 }

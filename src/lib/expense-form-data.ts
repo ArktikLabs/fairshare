@@ -9,6 +9,7 @@ export async function loadFormGroups(userId: string, onlyGroupId?: string): Prom
   const groups = await prisma.group.findMany({
     where: {
       isActive: true,
+      archivedAt: null,
       ...(onlyGroupId ? { id: onlyGroupId } : {}),
       members: { some: { userId, status: "ACTIVE" } },
     },

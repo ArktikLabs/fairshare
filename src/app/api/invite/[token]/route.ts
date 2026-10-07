@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { acceptGroupInvitation } from "@/lib/ghost-users";
+import { recordActivity } from "@/lib/activity";
 
 // GET /api/invite/[token] - Get invitation details
 export async function GET(
@@ -100,6 +101,7 @@ export async function POST(
 
     try {
       const updatedMember = await acceptGroupInvitation(token, session.user.id);
+      await recordActivity({ type: "MEMBER_JOINED", actorId: session.user.id, groupId: updatedMember.group.id });
 
       return NextResponse.json({
         message: "Invitation accepted successfully",

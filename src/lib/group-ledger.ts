@@ -4,6 +4,7 @@
 
 import { prisma } from "./prisma";
 import { calculateGroupSettlements, type GroupSettlements } from "./settlement-utils";
+import { canManagePayment } from "./permissions";
 
 export async function loadGroupSettlements(groupId: string): Promise<GroupSettlements | null> {
   const group = await prisma.group.findUnique({
@@ -68,16 +69,18 @@ export async function loadGroupSettlements(groupId: string): Promise<GroupSettle
     group.members,
     expenses,
     payments,
-    extraUsers
+    extraUsers,
+    { simplify: group.simplifyDebts }
   );
 }
 
+/** Active membership (archived groups included; check `archived` before writing). */
 export async function isActiveMember(groupId: string, userId: string) {
   const m = await prisma.groupMember.findFirst({
     where: { groupId, userId, status: "ACTIVE", group: { isActive: true } },
-    select: { id: true, role: true },
+    select: { id: true, role: true, group: { select: { archivedAt: true } } },
   });
-  return m;
+  return m ? { id: m.id, role: m.role, archived: Boolean(m.group.archivedAt) } : null;
 }
 
 
@@ -88,12 +91,18 @@ export interface PaymentRecord {
   description: string | null;
   createdAt: string;
   createdBy: string | null;
+  /** Payer, receiver or a group admin (and the group is not archived) */
+  canManage?: boolean;
   from: { id: string; name: string };
   to: { id: string; name: string };
 }
 
 /** Confirmed payments in a group, newest first. */
-export async function loadPaymentHistory(groupId: string, take = 50): Promise<PaymentRecord[]> {
+export async function loadPaymentHistory(
+  groupId: string,
+  take = 50,
+  viewer?: { viewerId: string; isAdmin: boolean; archived: boolean }
+): Promise<PaymentRecord[]> {
   const history = await prisma.settlement.findMany({
     where: { groupId, status: "CONFIRMED" },
     orderBy: { createdAt: "desc" },
@@ -110,6 +119,15 @@ export async function loadPaymentHistory(groupId: string, take = 50): Promise<Pa
     description: s.description,
     createdAt: s.createdAt.toISOString(),
     createdBy: s.createdBy,
+    canManage: viewer
+      ? canManagePayment({
+          userId: viewer.viewerId,
+          payerId: s.payerId,
+          payeeId: s.payeeId,
+          role: viewer.isAdmin ? "ADMIN" : null,
+          archived: viewer.archived,
+        })
+      : false,
     from: { id: s.payer.id, name: s.payer.name || s.payer.displayName || s.payer.email },
     to: { id: s.payee.id, name: s.payee.name || s.payee.displayName || s.payee.email },
   }));

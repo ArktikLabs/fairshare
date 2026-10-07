@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { acceptGroupInvitation } from "@/lib/ghost-users";
+import { recordActivity } from "@/lib/activity";
 
 // POST /api/groups/[id]/join?token=<inviteToken> - Join a group via invitation
 export async function POST(
@@ -28,6 +29,7 @@ export async function POST(
     try {
       // Accept invitation using Ghost Users system
       const updatedMember = await acceptGroupInvitation(inviteToken, session.user.id);
+      await recordActivity({ type: "MEMBER_JOINED", actorId: session.user.id, groupId: updatedMember.group.id });
 
       // Verify the group ID matches
       if (updatedMember.group.id !== groupId) {
