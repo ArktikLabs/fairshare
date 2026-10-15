@@ -31,7 +31,9 @@ echo "    $OLD -> $NEW"
 echo "==> backup database"
 mkdir -p "$BACKUP_DIR"; chmod 700 "$BACKUP_DIR"
 F="$BACKUP_DIR/fairshare_prod-$(date +%Y%m%d-%H%M%S)-predeploy.dump"
-docker exec fairshare-prod-db pg_dump -U fairshare -Fc fairshare_prod > "$F.tmp" && mv "$F.tmp" "$F"
+# Prod DB runs on arktik-prod-1 since 2026-10-16 (127.0.0.1:55441 here is the apps-prod-tunnel ssh forward, so
+# migrate + health check below hit prod; `systemctl --user restart fairshare-web` ships the build to prod-1).
+ssh -o BatchMode=yes arktik-prod-1 "docker exec fairshare-prod-db pg_dump -h 127.0.0.1 -p 55441 -U fairshare -Fc fairshare_prod" > "$F.tmp" && mv "$F.tmp" "$F"
 echo "    $F ($(stat -c %s "$F") bytes)"
 
 echo "==> checkout"
