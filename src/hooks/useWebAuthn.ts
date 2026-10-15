@@ -23,7 +23,7 @@ export function useWebAuthn() {
 
       // Start WebAuthn registration
       const { startRegistration } = await import("@simplewebauthn/browser");
-      const credential = await startRegistration(options);
+      const credential = await startRegistration({ optionsJSON: options });
 
       // Verify registration with server
       const verificationResponse = await fetch("/api/webauthn/register", {
@@ -77,7 +77,7 @@ export function useWebAuthn() {
 
       // Start WebAuthn authentication
       const { startAuthentication } = await import("@simplewebauthn/browser");
-      const credential = await startAuthentication(options);
+      const credential = await startAuthentication({ optionsJSON: options });
 
       // Verify authentication with server
       const verificationResponse = await fetch("/api/webauthn/authenticate", {

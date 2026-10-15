@@ -32,8 +32,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userAuthenticators = user.authenticators.map((authenticator) => ({
-      id: Buffer.from(authenticator.credentialID, "base64url"),
-      type: "public-key" as const,
+      id: authenticator.credentialID, // base64url string (v13)
     }));
 
     const options = await generateAuthenticationOptions({
@@ -101,11 +100,10 @@ export async function PUT(request: NextRequest) {
       expectedChallenge: challenge,
       expectedOrigin: origin,
       expectedRPID: rpID,
-      authenticator: {
-        credentialID: Buffer.from(authenticator.credentialID, "base64url"),
-        credentialPublicKey: Buffer.from(
-          authenticator.credentialPublicKey,
-          "base64url"
+      credential: {
+        id: authenticator.credentialID,
+        publicKey: new Uint8Array(
+          Buffer.from(authenticator.credentialPublicKey, "base64url")
         ),
         counter: authenticator.counter,
       },

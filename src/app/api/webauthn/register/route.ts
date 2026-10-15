@@ -3,6 +3,7 @@ import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
+import { isoUint8Array } from "@simplewebauthn/server/helpers";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { consumeChallenge, storeChallenge } from "@/lib/webauthn-store";
@@ -30,17 +31,19 @@ export async function GET() {
     }
 
     const userAuthenticators = user.authenticators.map((authenticator) => ({
-      id: Buffer.from(authenticator.credentialID, "base64url"),
-      type: "public-key" as const,
+      // v13: credential IDs are base64url strings (as stored)
+      id: authenticator.credentialID,
     }));
 
     const options = await generateRegistrationOptions({
       rpName,
       rpID,
-      userID: user.id,
+      // v13 wants bytes; UTF-8 of the id keeps the same user handle v9 produced
+      userID: isoUint8Array.fromUTF8String(user.id),
       userName: user.email || user.name || "User",
       userDisplayName: user.name || user.email || "User",
-      attestationType: "indirect",
+      // v13 dropped "indirect"; attestation isn't checked against a trust anchor here anyway
+      attestationType: "none",
       excludeCredentials: userAuthenticators,
       authenticatorSelection: {
         residentKey: "preferred",
@@ -104,15 +107,17 @@ export async function POST(request: NextRequest) {
     });
 
     if (verification.verified && verification.registrationInfo) {
-      const { credentialID, credentialPublicKey, counter } =
-        verification.registrationInfo;
+      const { credential: cred } = verification.registrationInfo;
+      const credentialID = cred.id; // base64url string
+      const credentialPublicKey = cred.publicKey;
+      const counter = cred.counter;
 
       // Save the authenticator to the database
       await prisma.authenticator.create({
         data: {
-          credentialID: Buffer.from(credentialID).toString("base64url"),
+          credentialID,
           userId: user.id,
-          providerAccountId: Buffer.from(credentialID).toString("base64url"),
+          providerAccountId: credentialID,
           credentialPublicKey:
             Buffer.from(credentialPublicKey).toString("base64url"),
           counter,
